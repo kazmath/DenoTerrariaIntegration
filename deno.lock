@@ -1,5 +1,26 @@
 {
-  "version": "3",
+  "version": "5",
+  "specifiers": {
+    "jsr:@std/bytes@^1.0.6": "1.0.6",
+    "jsr:@std/streams@*": "1.0.17",
+    "jsr:@std/streams@^1.0.17": "1.0.17"
+  },
+  "jsr": {
+    "@std/bytes@1.0.6": {
+      "integrity": "f6ac6adbd8ccd99314045f5703e23af0a68d7f7e58364b47d2c7f408aeb5820a"
+    },
+    "@std/streams@1.0.17": {
+      "integrity": "7859f3d9deed83cf4b41f19223d4a67661b3d3819e9fc117698f493bf5992140",
+      "dependencies": [
+        "jsr:@std/bytes"
+      ]
+    }
+  },
+  "redirects": {
+    "jsr:@std/bytes@^1.0.6/concat": "https://jsr.io/@std/bytes/1.0.6/concat.ts",
+    "jsr:@std/bytes@^1.0.6/copy": "https://jsr.io/@std/bytes/1.0.6/copy.ts",
+    "jsr:@std/streams": "https://jsr.io/@std/streams/1.0.17/mod.ts"
+  },
   "remote": {
     "https://deno.land/std@0.211.0/assert/_constants.ts": "a271e8ef5a573f1df8e822a6eb9d09df064ad66a4390f21b3e31f820a38e0975",
     "https://deno.land/std@0.211.0/assert/_diff.ts": "6a2d68f2c42d73a1e31818a4195f40598d672c7f02ac75c7f1b1e6789852c2bc",
@@ -32,6 +53,31 @@
     "https://deno.land/std@0.211.0/assert/mod.ts": "325df8c0683ad83a873b9691aa66b812d6275fc9fec0b2d180ac68a2c5efed3b",
     "https://deno.land/std@0.211.0/assert/unimplemented.ts": "47ca67d1c6dc53abd0bd729b71a31e0825fc452dbcd4fde4ca06789d5644e7fd",
     "https://deno.land/std@0.211.0/assert/unreachable.ts": "38cfecb95d8b06906022d2f9474794fca4161a994f83354fd079cac9032b5145",
-    "https://deno.land/std@0.211.0/fmt/colors.ts": "be082d6a6bbb2980ae7b2bf8c23c6bb2811ba90a06a9bcb861344a71784c5a99"
+    "https://deno.land/std@0.211.0/fmt/colors.ts": "be082d6a6bbb2980ae7b2bf8c23c6bb2811ba90a06a9bcb861344a71784c5a99",
+    "https://jsr.io/@std/bytes/1.0.6/concat.ts": "b10dc6291f8afb30f98aefd54002d21c961793c9aa18433301ab49d2a09976f1",
+    "https://jsr.io/@std/bytes/1.0.6/copy.ts": "e1c0262d3f0fa02b65cd923099d1f64ede3add3d79ca5b357e592c13aab26fae",
+    "https://jsr.io/@std/streams/1.0.17/_common.ts": "4ab352d3dffbf8e127d3b443977cf8613a0d69b37f78b28ac0301af27a9d6aa3",
+    "https://jsr.io/@std/streams/1.0.17/buffer.ts": "fc8ec6e390794d6bfe5b58712b5c306263d2f4e39bd5f0713ae420423b859a49",
+    "https://jsr.io/@std/streams/1.0.17/byte_slice_stream.ts": "4575ebaebd275d80b51358b1406139f56af7eedb1479853c183b2703cbc3e757",
+    "https://jsr.io/@std/streams/1.0.17/concat_readable_streams.ts": "6426be19cdf1d6f03613104e71a594c1e731641b67de9af965bb7902fc71a030",
+    "https://jsr.io/@std/streams/1.0.17/delimiter_stream.ts": "6735283dd21d0806698f65bb1ae2a4d6cc21b87f34acee337f24976d65d81894",
+    "https://jsr.io/@std/streams/1.0.17/early_zip_readable_streams.ts": "f1079809ff16459571fc16bb6ff14c5e48d50a8434426fddeb3f20a912210937",
+    "https://jsr.io/@std/streams/1.0.17/limited_bytes_transform_stream.ts": "80969e7cd47e87524e1eab36cf20b316e4695b07c47885de35396d3b804cc5ad",
+    "https://jsr.io/@std/streams/1.0.17/limited_transform_stream.ts": "5d6f42e51f46d7c496c32cfc4c1b5591c28c1a05e4b6c886f0eb8d71777cf181",
+    "https://jsr.io/@std/streams/1.0.17/merge_readable_streams.ts": "61ad1613ed4080e2ac01ac10925ffccc13f5f07c6fa283566b21e3a2f2ebd6a0",
+    "https://jsr.io/@std/streams/1.0.17/mod.ts": "1f26406359e54b59835fe91abc46ab3eeefcd2248818768ad81c64cff0ee623c",
+    "https://jsr.io/@std/streams/1.0.17/text_delimiter_stream.ts": "59dbdce33ec1b537eae85017e18fceb9fef268abec2d531adf4f4fdc500f5cad",
+    "https://jsr.io/@std/streams/1.0.17/text_line_stream.ts": "37eba34a2a208a76067a9976ff4a660f95dd8087ca3cfd3611a7d7465163fc5d",
+    "https://jsr.io/@std/streams/1.0.17/to_array_buffer.ts": "7a6d44aba3f690f5477296a697d1d38bdb406e9b782d912739ab03833699eb56",
+    "https://jsr.io/@std/streams/1.0.17/to_blob.ts": "aa144e5316bfacdcf59b3a23373b9dcf51cf1a0237fe4eebd67f53f75469082f",
+    "https://jsr.io/@std/streams/1.0.17/to_json.ts": "72d3b47c8db908edd6961fd41d2edbd860c5a1401179125d39b3a3a053bdc14d",
+    "https://jsr.io/@std/streams/1.0.17/to_text.ts": "50e9803b7e66ec498ad84745a6b232386abc978d77a4271b139c4101f0083904",
+    "https://jsr.io/@std/streams/1.0.17/to_transform_stream.ts": "ad98513ef2e578bcf68397522a5b7cbe593b81f98f63df80d2583e2b84639aeb",
+    "https://jsr.io/@std/streams/1.0.17/zip_readable_streams.ts": "6c45cb2c6812f9c0667696db34f60747006d090a518e4d05e734261d9a2d3d42"
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@std/streams@^1.0.17"
+    ]
   }
 }
