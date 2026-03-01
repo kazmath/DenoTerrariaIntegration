@@ -1,8 +1,13 @@
 {
   "tasks": {
-    "dev": "deno run --watch src/main.ts"
+    "dev": "deno run --watch --allow-env --allow-run --allow-read --allow-net src/main.ts"
   },
   "imports": {
-    "@std/streams": "jsr:@std/streams@^1.0.17"
+    "@std/crypto": "jsr:@std/crypto@^1.0.5",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.6",
+    "@std/encoding": "jsr:@std/encoding@^1.0.10",
+    "@std/path": "jsr:@std/path@^1.1.4",
+    "@std/streams": "jsr:@std/streams@^1.0.17",
+    "discord.js": "npm:discord.js@^14.25.1"
   }
 }

@@ -1,56 +1,61 @@
-import { TextLineStream } from "@std/streams";
+import "@std/dotenv/load";
+import { initBot } from "./bot_client.ts";
+import {
+    handleChatMessage,
+    handleIpOperationServer,
+    handleJoinLeave,
+    handleOperationServer,
+} from "./handleChatMessage.ts";
+import { spawnTerraria } from "./terraria_client.ts";
 
-const command = new Deno.Command("/tmp/faketerrariaserver.sh", {
-    args: ["eval", "console.log('Hello World')"],
-    stdin: "piped",
-    stdout: "piped",
-});
-const child = command.spawn();
-const stdout = child.stdout
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(new TextLineStream());
+const env = {
+    botToken: Deno.env.get("BOT_TOKEN")!,
+    terrariaServerPath: Deno.env.get("TERRARIA_SERVER_PATH")!,
+    terrariaConfigPath: Deno.env.get("TERRARIA_SERVER_CONFIG_PATH")!,
+    channelID: Deno.env.get("CHANNEL_ID")!,
+    webhookURL: Deno.env.get("WEBHOOK_URL")!,
+};
 
-const chatMessageRegex: RegExp = /^<(?<player>.*?)> (?<message>.*)$/;
-const joinLeftRegex: RegExp = /^(?<player>.*) has (?<type>joined|left)\.$/;
-const serverProcessRegex: RegExp =
-    /^(?<operation>Saving world data|Validating world save|Backing up world file)(?:: (?<progressPerc>[0-9]{1,3})%)?$/;
-const ipOperationsRegex: RegExp =
-    /^(?<ipAddr>[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]{1,5}) (?<verb>is|was) (?<operation>.*?)(?:: (?<details>.*))?$/;
+export const adminUserIDs = [
+    "410604925500784657", // @kazuma_weeb
+    "382853907031916544", // @qmelz
+];
+export const botPrefix = "k!";
+export let enableIntegration = false;
+export let timeOfLastMsg = 0;
+export const messageWasSent = () => {
+    timeOfLastMsg = new Date().getTime();
+};
 
-for await (const line of stdout) {
-    if (handleChatMessage(line)) continue;
-    if (handleJoinLeave(line)) continue;
-    if (handleServerProcess(line)) continue;
-    if (handleIpOperations(line)) continue;
+main();
 
-    console.log(line);
-}
-console.log("exit");
+async function main() {
+    const terraria = spawnTerraria(
+        env.terrariaServerPath,
+        env.terrariaConfigPath,
+    );
+    const [bot, webhook] = initBot({
+        stdinWriter: terraria.stdin,
+        channelID: env.channelID,
+        webhookURL: env.webhookURL,
+    });
 
-function handleChatMessage(line: string) {
-    const matches = chatMessageRegex.exec(line);
+    await bot.login(env.botToken);
 
-    if (matches == null) return false;
-    return true;
-}
+    for await (const line of terraria.stdout) {
+        if (line.includes(": Server started")) enableIntegration = true;
 
-function handleJoinLeave(line: string) {
-    const matches = joinLeftRegex.exec(line);
+        if (
+            handleChatMessage(line, webhook) ||
+            handleJoinLeave(line, webhook) ||
+            handleIpOperationServer(line, webhook) ||
+            handleOperationServer(line, webhook)
+        ) {
+            continue;
+        }
+        console.log(`UnknownMessage: ${line}`);
+    }
 
-    if (matches == null) return false;
-    return true;
-}
-
-function handleServerProcess(line: string) {
-    const matches = serverProcessRegex.exec(line);
-
-    if (matches == null) return false;
-    return true;
-}
-
-function handleIpOperations(line: string) {
-    const matches = ipOperationsRegex.exec(line);
-
-    if (matches == null) return false;
-    return true;
+    terraria.process.stdin.close();
+    console.log("exit");
 }
