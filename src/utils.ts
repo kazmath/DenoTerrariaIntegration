@@ -9,8 +9,8 @@ const regices = {
     joinLeftRegex: /^(?<player>.*) has (?<type>joined|left)\.$/,
     connectionRegex:
         /^(?<ipAddr>[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]{1,5}) (?<verb>is|was) (?<operation>.*?)(?:: (?<details>.*))?$/,
-    serverOperationRegex:
-        /^(?<operation>.*?)(?:: (?<progressPerc>[0-9]{1,3})%)?$/,
+    serverProcessRegex: /^(?<operation>.*?):? (?<progressPerc>[0-9]{1,3})%$/,
+    serverOperationRegex: /^(?<operation>.*?[^a-zA-Z0-9]*)$/,
     textTagRegex:
         /\[(?<identifier>[a-z]+)(?:\/(?<options>[a-zA-Z0-9]))?:(?<text>[^\]]*)\]/g,
 };
@@ -64,18 +64,33 @@ export function handleServerOperation(line: string, show: boolean = true) {
     if (matches == null) return false;
 
     const operation = matches.groups!["operation"];
-    const progressPerc = matches.groups!["progressPerc"];
 
-    printLog({ from: logSource + "(ServerOperation)", logLevel: 3 }, line);
+    printLog({ from: logSource + "(ServerOperation)", logLevel: 2 }, line);
     if (!show) return true;
 
     sendWebhook({
         options: {
-            content:
-                "`" +
-                operation +
-                (progressPerc ? `: ${progressPerc}%` : "") +
-                "`",
+            content: operation,
+        },
+        isServerMsg: true,
+    });
+    return true;
+}
+
+export function handleServerProcess(line: string, show: boolean = true) {
+    const matches = regices.serverProcessRegex.exec(line);
+
+    if (matches == null) return false;
+
+    const operation = matches.groups!["operation"];
+    const progressPerc = matches.groups!["progressPerc"];
+
+    printLog({ from: logSource + "(ServerProcess)", logLevel: 3 }, line);
+    if (!show) return true;
+
+    sendWebhook({
+        options: {
+            content: operation + (progressPerc ? `: ${progressPerc}%` : ""),
         },
         isServerMsg: true,
     });
@@ -102,10 +117,8 @@ export function handleServerConnection(line: string, show: boolean = true) {
     sendWebhook({
         options: {
             content:
-                "`" +
                 `{${UUID}} ${verb} ${operation}` +
-                (details ? `: ${details}` : "") +
-                "`",
+                (details ? `: ${details}` : ""),
         },
         isServerMsg: true,
     });
@@ -175,7 +188,6 @@ export function parseTags(input: string) {
     if (numberMatches == 0) return input;
     return output;
 }
-
 
 /**
  * Levels of log:

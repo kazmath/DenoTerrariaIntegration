@@ -4,13 +4,14 @@
         "prefix": "k!",
         "token": null
     },
-    "logLevel": 1,
-    "logTypes": {
+    "forwardTypes": {
         "chatMessage": true,
         "joinLeave": true,
         "serverConnection": false,
-        "serverOperation": false
+        "serverOperation": false,
+        "serverProcess": true
     },
+    "logLevel": 2,
     "terraria": {
         "binaryPath": null,
         "configPath": null

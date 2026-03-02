@@ -7,10 +7,12 @@ import {
     handleJoinLeave,
     handleServerConnection,
     handleServerOperation,
+    handleServerProcess,
     printLog,
 } from "./utils.ts";
 
 export let enableIntegration = false;
+const logSource = "Main";
 
 const isNotNull = (e: unknown) =>
     e != null && (typeof e != "object" || Object.values(e).every(isNotNull));
@@ -34,30 +36,39 @@ async function main() {
 
         if (lineTemp.includes("Server started")) {
             enableIntegration = true;
+            printLog({ from: logSource, logLevel: 1 }, "Integration Started.");
             await sendWebhook({
-                options: { content: "Integration Started: :white_check_mark: Hello!" },
+                options: {
+                    content: "Integration Started: :white_check_mark: Hello!",
+                },
                 isManualMsg: true,
             });
         }
 
-        if (handleChatMessage(lineTemp, config.logTypes.chatMessage)) {
+        if (handleChatMessage(lineTemp, config.forwardTypes.chatMessage)) {
             continue;
         }
 
-        if (handleJoinLeave(lineTemp, config.logTypes.joinLeave)) {
+        if (handleJoinLeave(lineTemp, config.forwardTypes.joinLeave)) {
             continue;
         }
 
         if (
             await handleServerConnection(
                 lineTemp,
-                config.logTypes.serverConnection,
+                config.forwardTypes.serverConnection,
             )
         ) {
             continue;
         }
 
-        if (handleServerOperation(lineTemp, config.logTypes.serverOperation)) {
+        if (handleServerProcess(lineTemp, config.forwardTypes.serverProcess)) {
+            continue;
+        }
+
+        if (
+            handleServerOperation(lineTemp, config.forwardTypes.serverOperation)
+        ) {
             continue;
         }
 
@@ -69,7 +80,7 @@ async function main() {
         terraria.destroy(),
     ]);
 
-    printLog({ from: "Main", logLevel: 1 }, "Integration stopped");
+    printLog({ from: logSource, logLevel: 1 }, "Integration Stopped.");
     Deno.exit(0);
 }
 

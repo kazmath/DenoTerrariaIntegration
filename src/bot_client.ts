@@ -31,6 +31,7 @@ export async function initBot(
             printLog(
                 {
                     from: logSource,
+                    logLevel: 1,
                 },
                 "Logged in as",
                 readyClient.user.tag,
@@ -49,12 +50,17 @@ export async function initBot(
                     });
                     return;
 
+                /**
+                 * todo:
+                 * add kill command to forcefully stop server but add a warning
+                 * with button complements in the webhook to prevent accidents
+                 */
                 case config.bot.prefix + "kill":
                     if (!config.adminUserIDs.includes(message.author.id))
                         return;
                     await sendWebhook({
                         options: {
-                            content: `Stopping...`,
+                            content: `Not implemented.`,
                         },
                         isManualMsg: true,
                     });
@@ -174,9 +180,7 @@ export async function sendWebhook({
     if (isServerMsg && !isManualMsg) {
         const currentTime = new Date().getTime();
         if (currentTime - timeOfLastMsg < rateLimit) {
-            queuedMessages.push(
-                tempOptions.content.replaceAll(/(^`)|(`$)/g, ""),
-            );
+            queuedMessages.push(tempOptions.content);
             timeOfLastMsg = new Date().getTime();
 
             if (intervalID == null) {
@@ -189,16 +193,11 @@ export async function sendWebhook({
                         queuedMessages.splice(0).join("\n") + //
                         "\n```";
                     timeOfLastMsg = new Date().getTime();
-                    await webhook!
-                        .send({
-                            avatarURL: undefined,
-                            username: "Server",
-                            content: messageContent,
-                        })
-                        .then((message) => {
-                            timeOfLastMsg = new Date().getTime();
-                            return message;
-                        });
+                    await webhook!.send({
+                        avatarURL: undefined,
+                        username: "Server",
+                        content: messageContent,
+                    });
 
                     if (queuedMessages.length == 0) {
                         clearInterval(intervalID!);
@@ -209,13 +208,10 @@ export async function sendWebhook({
 
             return null;
         }
+        tempOptions.content = "```\n" + tempOptions.content + "\n```";
     }
-    return await webhook
-        ?.send(options) //
-        .then((message) => {
-            timeOfLastMsg = new Date().getTime();
-            return message;
-        });
+    timeOfLastMsg = new Date().getTime();
+    return await webhook?.send(tempOptions); //
 }
 
 async function stopBot() {
