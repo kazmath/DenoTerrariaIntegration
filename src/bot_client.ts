@@ -1,56 +1,229 @@
-import { Client, Events, GatewayIntentBits, WebhookClient } from "discord.js";
-import { adminUserIDs, botPrefix } from "./main.ts";
+import {
+    Client,
+    Events,
+    GatewayIntentBits,
+    TextChannel,
+    WebhookClient,
+    WebhookMessageCreateOptions,
+} from "discord.js";
+import config from "../config.json" with { type: "json" };
+import { enableIntegration } from "./main.ts";
+import { printLog } from "./utils.ts";
 
-export function initBot({
-    webhookURL,
-    channelID,
-    stdinWriter,
-}: {
-    webhookURL: string;
-    channelID: string;
-    stdinWriter: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>>;
-}): [Client, WebhookClient] {
-    const client = new Client({
+const logSource = "DiscordJS";
+export let webhook: WebhookClient | null;
+export let discordBot: Client | null;
+
+export async function initBot(
+    stdinWriter: WritableStreamDefaultWriter<
+        Uint8Array<ArrayBufferLike>
+    > | null,
+) {
+    discordBot = new Client({
         intents: [
             GatewayIntentBits.Guilds,
             GatewayIntentBits.GuildMessages,
             GatewayIntentBits.MessageContent,
             GatewayIntentBits.DirectMessages,
         ],
-    });
+    })
+        .once(Events.ClientReady, (readyClient) => {
+            printLog(
+                {
+                    from: logSource,
+                },
+                "Logged in as",
+                readyClient.user.tag,
+            );
+        })
+        .on(Events.MessageCreate, async (message) => {
+            if (message.channelId != config.webhook.channelID) return;
 
-    const webhookURLPath = new URL(webhookURL).pathname.substring(1).split("/");
+            switch (message.content) {
+                case config.bot.prefix + "ping":
+                    await sendWebhook({
+                        options: {
+                            content: `:ping_pong: \`${new Date().getTime() - message.createdAt.getTime()}ms\` :ping_pong:`,
+                        },
+                        isManualMsg: true,
+                    });
+                    return;
 
-    const [webhookId, webhookToken] = webhookURLPath.slice(-2);
+                case config.bot.prefix + "kill":
+                    if (!config.adminUserIDs.includes(message.author.id))
+                        return;
+                    await sendWebhook({
+                        options: {
+                            content: `Stopping...`,
+                        },
+                        isManualMsg: true,
+                    });
+                    return;
 
-    const webhookClient = new WebhookClient({
-        id: webhookId,
-        token: webhookToken,
-    });
+                default:
+                    break;
+            }
 
-    client.once(Events.ClientReady, (readyClient) => {
-        console.log(`Logged in as ${readyClient.user.tag}!`);
-    });
+            if (message.content.startsWith(config.bot.prefix)) {
+                if (!config.adminUserIDs.includes(message.author.id)) return;
 
-    client.on(Events.MessageCreate, async (message) => {
-        if (message.channelId != channelID) return;
+                const outputStr =
+                    message.content
+                        .slice(config.bot.prefix.length)
+                        .split("\n")[0] + "\n";
+                const encodedText = new TextEncoder().encode(outputStr);
 
-        if (message.content == "!ping") {
-            webhookClient.send({
-                content: `:ping_pong: \`${new Date().getTime() - message.createdAt.getTime()}ms\` :ping_pong:`,
+                await stdinWriter?.write(encodedText);
+                return;
+            }
+        })
+        .on(Events.Error, (error) => {
+            printLog(
+                { from: logSource, logLevel: 1, isError: true },
+                "An error occured in the botClient:",
+                error,
+            );
+        });
+
+    const botToken = await discordBot //
+        .login(config.bot.token)
+        .catch((error) => {
+            printLog(
+                { from: logSource, logLevel: 1, isError: true },
+                "An error occured when initializing the botClient:",
+                error,
+            );
+            return null;
+        });
+
+    webhook = await discordBot.channels
+        .fetch(config.webhook.channelID)
+        .then(async (anyChannel) => {
+            const channel = anyChannel as TextChannel;
+            const found = await channel
+                .fetchWebhooks()
+                .then((webhookList) =>
+                    webhookList.find(
+                        (v) => v.owner?.id == discordBot!.user?.id,
+                    ),
+                );
+            if (found) {
+                return found;
+            }
+
+            return await channel.createWebhook({
+                name: config.webhook.username,
+                avatar: config.webhook.avatarURL,
             });
+        })
+        .then((webhook) =>
+            new WebhookClient(webhook) //
+                .on(Events.Error, (error) => {
+                    printLog(
+                        { from: logSource, logLevel: 1, isError: true },
+                        "An error occured in the webhookClient:",
+                        error,
+                    );
+                }),
+        )
+        .catch((error) => {
+            printLog(
+                { from: logSource, logLevel: 1, isError: true },
+                "An error occured when initializing the webhookClient:",
+                error,
+            );
+            return null;
+        });
+
+    return {
+        //
+        botClient: discordBot,
+        webhookClient: webhook,
+        botToken: botToken,
+        webhookURL: webhook?.url,
+        destroy: stopBot,
+    };
+}
+
+let timeOfLastMsg = -Infinity;
+const queuedMessages: Array<string | undefined> = [];
+const rateLimit = 500;
+let intervalID: number | null;
+export async function sendWebhook({
+    options,
+    isServerMsg = false,
+    isManualMsg = false,
+}: {
+    options: WebhookMessageCreateOptions;
+    isServerMsg?: boolean;
+    isManualMsg?: boolean;
+}) {
+    if (!enableIntegration && !isManualMsg) return;
+
+    const tempOptions = options;
+    if (tempOptions.avatarURL == "" || tempOptions.avatarURL == null) {
+        tempOptions.avatarURL = config.webhook.avatarURL;
+    }
+    if (tempOptions.username == "" || tempOptions.username == null) {
+        tempOptions.username = config.webhook.username;
+    }
+    if (tempOptions.content == "" || tempOptions.content == null) {
+        return;
+    }
+
+    if (isServerMsg && !isManualMsg) {
+        const currentTime = new Date().getTime();
+        if (currentTime - timeOfLastMsg < rateLimit) {
+            queuedMessages.push(
+                tempOptions.content.replaceAll(/(^`)|(`$)/g, ""),
+            );
+            timeOfLastMsg = new Date().getTime();
+
+            if (intervalID == null) {
+                intervalID = setInterval(async () => {
+                    const currentTime = new Date().getTime();
+                    if (currentTime - timeOfLastMsg < rateLimit) return;
+
+                    const messageContent = //
+                        "```\n" + //
+                        queuedMessages.splice(0).join("\n") + //
+                        "\n```";
+                    timeOfLastMsg = new Date().getTime();
+                    await webhook!
+                        .send({
+                            avatarURL: undefined,
+                            username: "Server",
+                            content: messageContent,
+                        })
+                        .then((message) => {
+                            timeOfLastMsg = new Date().getTime();
+                            return message;
+                        });
+
+                    if (queuedMessages.length == 0) {
+                        clearInterval(intervalID!);
+                        intervalID = null;
+                    }
+                }, rateLimit / 2);
+            }
+
+            return null;
         }
+    }
+    return await webhook
+        ?.send(options) //
+        .then((message) => {
+            timeOfLastMsg = new Date().getTime();
+            return message;
+        });
+}
 
-        if (message.content.startsWith(botPrefix)) {
-            if (!adminUserIDs.includes(message.author.id)) return;
-
-            const outputStr =
-                message.content.slice(botPrefix.length) + "\n";
-            const encodedText = new TextEncoder().encode(outputStr);
-
-            await stdinWriter.write(encodedText);
-        }
+async function stopBot() {
+    const stopMessage = "Integration Stopped.";
+    await sendWebhook({
+        options: { content: stopMessage + " :wave: Goodbye!" },
+        isManualMsg: true,
     });
-
-    return [client, webhookClient];
+    await webhook?.delete(stopMessage);
+    printLog({ from: logSource, logLevel: 1 }, stopMessage);
 }

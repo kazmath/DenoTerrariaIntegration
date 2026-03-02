@@ -1,0 +1,23 @@
+{
+    "adminUserIDs": [],
+    "bot": {
+        "prefix": "k!",
+        "token": null
+    },
+    "logLevel": 1,
+    "logTypes": {
+        "chatMessage": true,
+        "joinLeave": true,
+        "serverConnection": false,
+        "serverOperation": false
+    },
+    "terraria": {
+        "binaryPath": null,
+        "configPath": null
+    },
+    "webhook": {
+        "avatarURL": "https://terraria.wiki.gg/images/Cell_Phone.png",
+        "channelID": null,
+        "username": "Server"
+    }
+}
