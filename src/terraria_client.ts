@@ -77,7 +77,7 @@ export function handleChatMessage(line: string, show: boolean = true) {
     sendWebhook({
         options: {
             username: parseTags(player),
-            content: hideIP(parseTags(message)),
+            content: parseTags(message),
         },
     });
     return true;

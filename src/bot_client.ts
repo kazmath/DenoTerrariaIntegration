@@ -170,7 +170,14 @@ export async function initBot(
             );
 
             try {
-                Deno.createSync(config.webhook.customAvatarsDb);
+                Deno.lstatSync(config.webhook.customAvatarsDb);
+            } catch (_) {
+                Deno.writeFileSync(
+                    config.webhook.customAvatarsDb,
+                    new TextEncoder().encode("{}"),
+                );
+            }
+            try {
                 customAvatars = JSON.parse(
                     new TextDecoder("utf-8").decode(
                         Deno.readFileSync(
