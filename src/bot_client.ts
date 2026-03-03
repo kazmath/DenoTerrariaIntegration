@@ -88,7 +88,7 @@ export async function initBot(
             }
 
             await Deno.writeTextFile(
-                config.webhook.customAvatarsConfig,
+                config.webhook.customAvatarsDb,
                 JSON.stringify(avatars, null, 4),
             )
                 .then(() => {
@@ -174,7 +174,7 @@ export async function initBot(
                     new TextDecoder("utf-8").decode(
                         Deno.readFileSync(
                             //
-                            config.webhook.customAvatarsConfig,
+                            config.webhook.customAvatarsDb,
                         ),
                     ),
                 );

@@ -19,6 +19,7 @@
     "webhook": {
         "avatarURL": "https://terraria.wiki.gg/images/Cell_Phone.png",
         "channelID": null,
+        "customAvatarsDb": null,
         "username": "Server"
     }
 }
