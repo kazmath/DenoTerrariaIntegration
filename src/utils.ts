@@ -1,144 +1,62 @@
 import itemIDs from "../assets/item_ids.json" with { type: "json" };
 import modifierIDs from "../assets/modifier_ids.json" with { type: "json" };
 import config from "../config.json" with { type: "json" };
-import { sendWebhook } from "./bot_client.ts";
 
-const logSource = "MsgHandler";
-const regices = {
-    chatMessageRegex: /^<(?<player>.*?)> (?<message>.*)$/,
-    joinLeftRegex: /^(?<player>.*) has (?<type>joined|left)\.$/,
-    connectionRegex:
+const logSource = "Utils";
+
+export const regices = {
+    chatMessage: /^<(?<player>.*?)> (?<message>.*)$/,
+    joinLeft: /^(?<player>.*) has (?<type>joined|left)\.$/,
+    connection:
         /^(?<ipAddr>[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]{1,5}) (?<verb>is|was) (?<operation>.*?)(?:: (?<details>.*))?$/,
-    serverProcessRegex: /^(?<operation>.*?):? (?<progressPerc>[0-9]{1,3})%$/,
-    serverOperationRegex: /^(?<operation>.*?[^a-zA-Z0-9]*)$/,
-    textTagRegex:
-        /\[(?<identifier>[a-z]+)(?:\/(?<options>[a-zA-Z0-9]))?:(?<text>[^\]]*)\]/g,
+    serverProcess: /^(?<operation>.*?):? (?<progressPerc>[0-9]{1,3})%$/,
+    serverOperation: /^(?<operation>.*?[^a-zA-Z0-9]*)$/,
+    textTag:
+        /\[(?<identifier>[a-z]+)(?:\/(?<options>[a-zA-Z0-9]+))?:(?<text>[^\]]*)\]/g,
+    forwardedDiscordMessage: /^\[color\/FFFFFF:[^\[\]]+:\] /,
+    playersConnected: /^(?<amount>[0-9]+|No) players? connected\./,
 };
 const connectedIPs: {
-    [key: string]: `${string}-${string}-${string}-${string}-${string}`;
+    [key: string]: string;
 } = {};
 
-export function handleChatMessage(line: string, show: boolean = true) {
-    const matches = regices.chatMessageRegex.exec(line);
-
-    if (matches == null) return false;
-
-    const player = matches.groups!["player"];
-    const message = matches.groups!["message"];
-
-    printLog({ from: logSource + "(ChatMessage)" }, line);
-    if (!show) return true;
-
-    sendWebhook({
-        options: {
-            username: parseTags(player),
-            content: parseTags(message),
-        },
-    });
-    return true;
-}
-
-export function handleJoinLeave(line: string, show: boolean = true) {
-    const matches = regices.joinLeftRegex.exec(line);
-
-    if (matches == null) return false;
-
-    const player = matches.groups!["player"];
-    const type = matches.groups!["type"];
-
-    printLog({ from: logSource + "(JoinLeave)" }, line);
-    if (!show) return true;
-
-    sendWebhook({
-        options: {
-            username: parseTags(player),
-            content: `**${player} has ${type}.**`,
-        },
-    });
-    return true;
-}
-
-export function handleServerOperation(line: string, show: boolean = true) {
-    const matches = regices.serverOperationRegex.exec(line);
-
-    if (matches == null) return false;
-
-    const operation = matches.groups!["operation"];
-
-    printLog({ from: logSource + "(ServerOperation)", logLevel: 2 }, line);
-    if (!show) return true;
-
-    sendWebhook({
-        options: {
-            content: operation,
-        },
-        isServerMsg: true,
-    });
-    return true;
-}
-
-export function handleServerProcess(line: string, show: boolean = true) {
-    const matches = regices.serverProcessRegex.exec(line);
-
-    if (matches == null) return false;
-
-    const operation = matches.groups!["operation"];
-    const progressPerc = matches.groups!["progressPerc"];
-
-    printLog({ from: logSource + "(ServerProcess)", logLevel: 3 }, line);
-    if (!show) return true;
-
-    sendWebhook({
-        options: {
-            content: operation + (progressPerc ? `: ${progressPerc}%` : ""),
-        },
-        isServerMsg: true,
-    });
-    return true;
-}
-
-export function handleServerConnection(line: string, show: boolean = true) {
-    const matches = regices.connectionRegex.exec(line);
-
-    if (matches == null) return false;
-
-    const ipAddr = matches.groups!["ipAddr"].replace(/:[0-9]+$/, "");
-    const verb = matches.groups!["verb"];
-    const operation = matches.groups!["operation"];
-    const details = matches.groups!["details"];
-
-    printLog({ from: logSource + "(ServerConnection)", logLevel: 3 }, line);
-    if (!show) return true;
-
-    let UUID = Object.entries(connectedIPs).find(([k, _]) => k == ipAddr)?.[1];
-    if (UUID == null) {
-        UUID = connectedIPs[ipAddr] = crypto.randomUUID();
-    }
-    sendWebhook({
-        options: {
-            content:
-                `{${UUID}} ${verb} ${operation}` +
-                (details ? `: ${details}` : ""),
-        },
-        isServerMsg: true,
-    });
-    return true;
-}
-
 export function parseTags(input: string) {
-    let numberMatches = 0;
-    const output = input.replaceAll(regices.textTagRegex, (match, ...args) => {
-        numberMatches++;
+    let output = "";
+
+    const re = new RegExp(regices.textTag);
+
+    let pointer: number = 0;
+    let lastTagLastIndex = -1;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(input)) != null) {
+        if (match.index != lastTagLastIndex && match.index != 0) {
+            output += " ";
+        }
+        output += input.slice(pointer, match.index);
+        pointer = match[0].length + match.index;
 
         const groups: {
             [key: string]: string;
-        } = args.slice(-1)[0];
+        } = match.groups!;
 
+        let curr: string;
         switch (groups["identifier"]) {
+            // Colored text (unsupported in discord)
             case "color":
-            case "c":
-                return `**${groups["text"]}**`;
+            case "c": {
+                let prefix = "**";
+                const suffix = prefix;
+                if (output.match(/[^*]?\*\*[^*]*\*\*$/)) {
+                    output = output.slice(0, -prefix.length);
+                    prefix = "";
+                } else if (output.match(/\*+$/)) {
+                    prefix = " " + prefix;
+                }
+                curr = prefix + groups["text"] + suffix;
+                break;
+            }
 
+            // Item with modifier and amount
             case "item":
             case "i": {
                 let quantity: number = 1;
@@ -154,39 +72,81 @@ export function parseTags(input: string) {
                             if (["p"].includes(opt[1])) {
                                 modifier = (
                                     modifierIDs as { [key: string]: string }
-                                )[opt[1]];
+                                )[opt[2]];
                                 return;
                             }
                         });
                 }
 
-                return (
-                    "***" +
-                    (modifier.length > 0 ? modifier : "") +
-                    (
-                        itemIDs as {
-                            [key: string]: { [key: string]: string };
-                        }
-                    )[groups["text"]]["Name"] +
-                    "***" +
-                    (quantity > 1 ? `x${quantity}` : "")
-                );
+                if (match.index == lastTagLastIndex) {
+                    output += ", ";
+                } else if (match.index != 0) {
+                    output += " ";
+                }
+                const itemName = (
+                    itemIDs as {
+                        [key: string]: { [key: string]: string };
+                    }
+                )[groups["text"]]["Name"];
+                curr =
+                    `[${itemName + (quantity > 1 ? ` (×${quantity})` : "")}]` +
+                    "(" +
+                    `<https://terraria.wiki.gg/wiki/${itemName.replaceAll(/\s/g, "%20")}> "` +
+                    (modifier.length > 0 ? modifier + " " : "") +
+                    itemName +
+                    (quantity > 1 ? ` (×${quantity})` : "") +
+                    '")';
+
+                break;
             }
+
+            // Username chat formatting (e.g.: [n:player] -> <player>)
             case "name":
             case "n":
-                return `<${groups["text"]}>`;
+                curr = `<${groups["text"]}>`;
+                break;
+
+            // Achievements
             case "a":
-                return `\`${groups["text"]}\``;
+            // Icons
             case "glyph":
-            case "g":
-                return `\`${groups["text"]}\``;
+            case "g": {
+                let prefix = "`";
+                const suffix = prefix;
+                if (output.match(/`$/)) {
+                    prefix = " " + prefix;
+                }
+
+                curr = prefix + groups["text"] + suffix;
+                break;
+            }
 
             default:
-                return match[0];
+                curr = match[0];
+                break;
         }
-    });
-    if (numberMatches == 0) return input;
+        lastTagLastIndex = re.lastIndex;
+        output += curr;
+        //
+        // re.index++;
+    }
+    output += input.slice(pointer, input.length);
+
     return output;
+}
+
+export function hideIP(ipAddr: string) {
+    let hiddenIP: string | undefined = Object.entries(connectedIPs).find(
+        ([k, _]) => k == ipAddr,
+    )?.[1];
+    if (hiddenIP == null) {
+        hiddenIP = connectedIPs[ipAddr] = crypto
+            .randomUUID()
+            .replaceAll("-", "")
+            .slice(-10)
+            .toUpperCase();
+    }
+    return hiddenIP;
 }
 
 /**

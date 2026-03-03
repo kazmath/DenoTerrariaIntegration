@@ -2,7 +2,9 @@ import {
     Client,
     Events,
     GatewayIntentBits,
+    Message,
     TextChannel,
+    User,
     WebhookClient,
     WebhookMessageCreateOptions,
 } from "discord.js";
@@ -14,11 +16,141 @@ const logSource = "DiscordJS";
 export let webhook: WebhookClient | null;
 export let discordBot: Client | null;
 
+let customAvatars: { [key: string]: string };
+let _checkPlayingIntervalID: number;
+
 export async function initBot(
     stdinWriter: WritableStreamDefaultWriter<
         Uint8Array<ArrayBufferLike>
     > | null,
 ) {
+    const botCommands: {
+        [key: string]: (message: Message) => Promise<void> | void;
+    } = {
+        ping: async (message) => {
+            await sendWebhook({
+                options: {
+                    content: `:ping_pong: \`${new Date().getTime() - message.createdAt.getTime()}ms\` :ping_pong:`,
+                },
+                isManualMsg: true,
+            });
+        },
+        avatar: async (message) => {
+            if (!config.adminUserIDs.includes(message.author.id)) return;
+
+            const args = message.content
+                .split("\n")[0]
+                .matchAll(/"([^"]*)"|(\S+)/g)
+                .map((e) => e[1] ?? e[2])
+                .toArray();
+
+            const avatars: { [key: string]: string } = customAvatars;
+            const playerName = args[1];
+            const urlOrMention = args[2];
+
+            let msg = "";
+            let msgLog = "";
+            let msgEmbed = "";
+            let msgError = "";
+            let url: string | null;
+            if (urlOrMention == undefined) {
+                delete avatars[playerName];
+
+                msg = `Successfully removed custom avatar of user \`${playerName}\``;
+                msgError = `Failed to remove custom avatar of user\`${playerName}\``;
+            } else {
+                message.mentions.parsedUsers.first;
+
+                let user: User | undefined;
+                if ((user = message.mentions.parsedUsers.first()) != null) {
+                    url = user.avatarURL();
+                } else {
+                    url = new URL(urlOrMention).toString();
+                }
+
+                if (url == null) {
+                    const errorMsg = "Invalid URL";
+                    printLog({ from: logSource, isError: true }, errorMsg);
+                    await sendWebhook({
+                        options: {
+                            content: errorMsg,
+                        },
+                        isManualMsg: true,
+                    });
+                    return;
+                }
+
+                avatars[playerName] = url;
+                msg = `Successfully set avatar of user \`${playerName}\``;
+                msgLog = ` to <${url}>`;
+                msgEmbed = " to:";
+                msgError = `Failed to set avatar of user \`${playerName}\` to <${url}>`;
+            }
+
+            await Deno.writeTextFile(
+                config.webhook.customAvatarsConfig,
+                JSON.stringify(avatars, null, 4),
+            )
+                .then(() => {
+                    printLog({ from: logSource }, msg + msgLog);
+                    customAvatars = avatars;
+
+                    return sendWebhook({
+                        options: {
+                            content: msg + msgEmbed,
+                            ...(url != null
+                                ? {
+                                      embeds: [
+                                          {
+                                              image: {
+                                                  url: url,
+                                              },
+                                          },
+                                      ],
+                                  }
+                                : {}),
+                        },
+                        isManualMsg: true,
+                    });
+                })
+                .catch((error) => {
+                    const errorMsg = msgError;
+                    printLog(
+                        { from: logSource, isError: true },
+                        errorMsg + ":",
+                        error,
+                    );
+                    return sendWebhook({
+                        options: {
+                            content: errorMsg,
+                        },
+                        isManualMsg: true,
+                    });
+                });
+        },
+        stop: async (message) => {
+            if (!config.adminUserIDs.includes(message.author.id)) return;
+
+            await sendWebhook({
+                options: {
+                    content: `Not implemented.`,
+                },
+                isManualMsg: true,
+            });
+        },
+        exec: async (message) => {
+            if (!config.adminUserIDs.includes(message.author.id)) return;
+
+            const outputStr =
+                message.content
+                    .slice((config.bot.prefix + "exec ").length)
+                    .split("\n")[0] + "\n";
+            const encodedText = new TextEncoder().encode(outputStr);
+
+            await stdinWriter?.write(encodedText);
+        },
+    };
+
     discordBot = new Client({
         intents: [
             GatewayIntentBits.Guilds,
@@ -36,51 +168,57 @@ export async function initBot(
                 "Logged in as",
                 readyClient.user.tag,
             );
+
+            try {
+                customAvatars = JSON.parse(
+                    new TextDecoder("utf-8").decode(
+                        Deno.readFileSync(
+                            //
+                            config.webhook.customAvatarsConfig,
+                        ),
+                    ),
+                );
+            } catch (error) {
+                printLog({ from: logSource, isError: true }, error);
+            }
+
+            _checkPlayingIntervalID = setInterval(
+                async () => {
+                    await stdinWriter?.write(
+                        new TextEncoder().encode("playing\n"),
+                    );
+                },
+                30 * 60 * 1000, // 30min
+            );
         })
         .on(Events.MessageCreate, async (message) => {
             if (message.channelId != config.webhook.channelID) return;
+            if (message.author.bot || message.author.system) return;
 
-            switch (message.content) {
-                case config.bot.prefix + "ping":
-                    await sendWebhook({
-                        options: {
-                            content: `:ping_pong: \`${new Date().getTime() - message.createdAt.getTime()}ms\` :ping_pong:`,
-                        },
-                        isManualMsg: true,
-                    });
-                    return;
-
-                /**
-                 * todo:
-                 * add kill command to forcefully stop server but add a warning
-                 * with button complements in the webhook to prevent accidents
-                 */
-                case config.bot.prefix + "kill":
-                    if (!config.adminUserIDs.includes(message.author.id))
-                        return;
-                    await sendWebhook({
-                        options: {
-                            content: `Not implemented.`,
-                        },
-                        isManualMsg: true,
-                    });
-                    return;
-
-                default:
-                    break;
+            const command = Object.entries(botCommands).find((e) => {
+                return (
+                    message.content //
+                        .split("\n")[0]
+                        .split(/\s/)[0] ==
+                    config.bot.prefix + e[0]
+                );
+                // return message.content.startsWith(config.bot.prefix + e[0]);
+            })?.[1];
+            if (command != null) {
+                await command(message);
+                return;
             }
 
-            if (message.content.startsWith(config.bot.prefix)) {
-                if (!config.adminUserIDs.includes(message.author.id)) return;
-
-                const outputStr =
-                    message.content
-                        .slice(config.bot.prefix.length)
-                        .split("\n")[0] + "\n";
-                const encodedText = new TextEncoder().encode(outputStr);
-
+            const outputStr = message.cleanContent //
+                .split("\n")
+                .map(
+                    (m) =>
+                        `say [color/FFFFFF:${message.author.username}:] ${m}\n`,
+                );
+            const encoder = new TextEncoder();
+            for (const line of outputStr) {
+                const encodedText = encoder.encode(line);
                 await stdinWriter?.write(encodedText);
-                return;
             }
         })
         .on(Events.Error, (error) => {
@@ -167,12 +305,20 @@ export async function sendWebhook({
     if (!enableIntegration && !isManualMsg) return;
 
     const tempOptions = options;
-    if (tempOptions.avatarURL == "" || tempOptions.avatarURL == null) {
-        tempOptions.avatarURL = config.webhook.avatarURL;
-    }
     if (tempOptions.username == "" || tempOptions.username == null) {
         tempOptions.username = config.webhook.username;
     }
+    if (tempOptions.avatarURL == "" || tempOptions.avatarURL == null) {
+        if (!isServerMsg) {
+            tempOptions.avatarURL =
+                (customAvatars as { [key: string]: string })[
+                    tempOptions.username
+                ] ?? config.webhook.avatarURL;
+        } else {
+            tempOptions.avatarURL = config.webhook.avatarURL;
+        }
+    }
+    tempOptions.content?.trim();
     if (tempOptions.content == "" || tempOptions.content == null) {
         return;
     }
@@ -216,6 +362,22 @@ export async function sendWebhook({
 
 async function stopBot() {
     const stopMessage = "Integration Stopped.";
+    discordBot?.user?.setActivity("");
+    await new Promise<void>((resolve, _) => {
+        let intervalID: number | null = null;
+        intervalID = setInterval(
+            () => {
+                if (discordBot?.user?.presence.activities.length == 0) {
+                    clearInterval(intervalID!);
+                    resolve();
+                }
+            },
+            500,
+            intervalID,
+        );
+    });
+    // await discordBot?.destroy()
+
     await sendWebhook({
         options: { content: stopMessage + " :wave: Goodbye!" },
         isManualMsg: true,

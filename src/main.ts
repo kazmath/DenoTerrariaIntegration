@@ -1,18 +1,20 @@
-import "@std/dotenv/load";
 import config from "../config.json" with { type: "json" };
 import { initBot as initDiscordJs, sendWebhook } from "./bot_client.ts";
-import { spawnTerraria } from "./terraria_client.ts";
 import {
     handleChatMessage,
     handleJoinLeave,
     handleServerConnection,
     handleServerOperation,
     handleServerProcess,
-    printLog,
-} from "./utils.ts";
+    spawnTerraria,
+} from "./terraria_client.ts";
+import { printLog } from "./utils.ts";
+
+const logSource = "Main";
+let exitingGracefully = false;
+let timeoutID: number | null = null;
 
 export let enableIntegration = false;
-const logSource = "Main";
 
 const isNotNull = (e: unknown) =>
     e != null && (typeof e != "object" || Object.values(e).every(isNotNull));
@@ -31,6 +33,15 @@ async function main() {
 
     const discordClients = await initDiscordJs(terraria.stdin);
 
+    // Deno.addSignalListener("SIGINT", () => {
+    //     console.log("interrupted!");
+    //     Deno.exit();
+    // });
+    Deno.addSignalListener(
+        "SIGINT",
+        async () => await exitGracefully(discordClients, terraria),
+    );
+
     for await (const line of terraria.stdout) {
         const lineTemp = line.replace(/^(: )*/, "");
 
@@ -43,18 +54,38 @@ async function main() {
                 },
                 isManualMsg: true,
             });
+            timeoutID = setTimeout(() => {
+                terraria.stdin.write(
+                    //
+                    new TextEncoder().encode("playing\n"),
+                );
+                timeoutID = null;
+            }, 5000);
         }
 
-        if (handleChatMessage(lineTemp, config.forwardTypes.chatMessage)) {
-            continue;
-        }
-
-        if (handleJoinLeave(lineTemp, config.forwardTypes.joinLeave)) {
+        if (
+            handleChatMessage(
+                //
+                lineTemp,
+                config.forwardTypes.chatMessage,
+            )
+        ) {
             continue;
         }
 
         if (
-            await handleServerConnection(
+            handleJoinLeave(
+                //
+                lineTemp,
+                config.forwardTypes.joinLeave,
+            )
+        ) {
+            continue;
+        }
+
+        if (
+            handleServerConnection(
+                //
                 lineTemp,
                 config.forwardTypes.serverConnection,
             )
@@ -62,18 +93,49 @@ async function main() {
             continue;
         }
 
-        if (handleServerProcess(lineTemp, config.forwardTypes.serverProcess)) {
+        if (
+            handleServerProcess(
+                //
+                lineTemp,
+                config.forwardTypes.serverProcess,
+            )
+        ) {
             continue;
         }
 
         if (
-            handleServerOperation(lineTemp, config.forwardTypes.serverOperation)
+            handleServerOperation(
+                //
+                lineTemp,
+                config.forwardTypes.serverOperation,
+            )
         ) {
             continue;
         }
 
         printLog({ logLevel: 1, isError: true }, lineTemp);
     }
+    await exitGracefully(discordClients, terraria);
+}
+
+async function exitGracefully(
+    discordClients: {
+        destroy: () => Promise<void>;
+    },
+    terraria: {
+        destroy: () => Promise<Deno.CommandOutput>;
+    },
+) {
+    if (exitingGracefully) return;
+    exitingGracefully = true;
+
+    printLog(
+        { from: logSource, logLevel: 1 },
+        "Attempting to shut down gracefully",
+    );
+
+    if (timeoutID) clearTimeout(timeoutID);
+
     await Promise.allSettled([
         //
         discordClients.destroy(),
