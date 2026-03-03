@@ -366,8 +366,9 @@ async function stopBot() {
     await new Promise<void>((resolve, _) => {
         let intervalID: number | null = null;
         intervalID = setInterval(
-            () => {
-                if (discordBot?.user?.presence.activities.length == 0) {
+            async () => {
+                const fetchedUser = await discordBot?.user?.fetch();
+                if (fetchedUser?.client.user.presence.activities.length == 0) {
                     clearInterval(intervalID!);
                     resolve();
                 }
@@ -376,12 +377,13 @@ async function stopBot() {
             intervalID,
         );
     });
-    // await discordBot?.destroy()
 
     await sendWebhook({
         options: { content: stopMessage + " :wave: Goodbye!" },
         isManualMsg: true,
     });
     await webhook?.delete(stopMessage);
+
+    await discordBot?.destroy();
     printLog({ from: logSource, logLevel: 1 }, stopMessage);
 }
