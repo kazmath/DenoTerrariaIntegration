@@ -170,6 +170,7 @@ export async function initBot(
             );
 
             try {
+                Deno.createSync(config.webhook.customAvatarsDb);
                 customAvatars = JSON.parse(
                     new TextDecoder("utf-8").decode(
                         Deno.readFileSync(
@@ -309,7 +310,7 @@ export async function sendWebhook({
         tempOptions.username = config.webhook.username;
     }
     if (tempOptions.avatarURL == "" || tempOptions.avatarURL == null) {
-        if (!isServerMsg) {
+        if (!isServerMsg && customAvatars != null) {
             tempOptions.avatarURL =
                 (customAvatars as { [key: string]: string })[
                     tempOptions.username
