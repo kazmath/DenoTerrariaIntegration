@@ -10,7 +10,7 @@ import {
 } from "./terraria_client.ts";
 import { printLog } from "./utils.ts";
 
-const logSource = "Main";
+const _logSource = "Main";
 let exitingGracefully = false;
 let timeoutID: number | null = null;
 
@@ -47,7 +47,7 @@ async function main() {
 
         if (lineTemp.includes("Server started")) {
             enableIntegration = true;
-            printLog({ from: logSource, logLevel: 1 }, "Integration Started.");
+            printLog({ from: _logSource, logLevel: 1 }, "Integration Started.");
             await sendWebhook({
                 options: {
                     content: "Integration Started: :white_check_mark: Hello!",
@@ -64,7 +64,7 @@ async function main() {
         }
 
         if (
-            handleChatMessage(
+            await handleChatMessage(
                 //
                 lineTemp,
                 config.forwardTypes.chatMessage,
@@ -130,7 +130,7 @@ async function exitGracefully(
     exitingGracefully = true;
 
     printLog(
-        { from: logSource, logLevel: 1 },
+        { from: _logSource, logLevel: 1 },
         "Attempting to shut down gracefully",
     );
 
@@ -142,7 +142,7 @@ async function exitGracefully(
         terraria.destroy(),
     ]);
 
-    printLog({ from: logSource, logLevel: 1 }, "Integration Stopped.");
+    printLog({ from: _logSource, logLevel: 1 }, "Integration Stopped.");
     Deno.exit(0);
 }
 

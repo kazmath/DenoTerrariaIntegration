@@ -1,6 +1,8 @@
 {
     "adminUserIDs": [],
     "bot": {
+        "destroyAfterStop": true,
+        "enableActivity": true,
         "prefix": "k!",
         "token": null
     },
@@ -19,7 +21,7 @@
     "webhook": {
         "avatarURL": "https://terraria.wiki.gg/images/Cell_Phone.png",
         "channelID": null,
-        "customAvatarsDb": null,
+        "customAvatarsDb": "",
         "username": "Server"
     }
 }

@@ -1,4 +1,6 @@
 import {
+    Activity,
+    ActivityOptions,
     Client,
     Events,
     GatewayIntentBits,
@@ -10,13 +12,13 @@ import {
 } from "discord.js";
 import config from "../config.json" with { type: "json" };
 import { enableIntegration } from "./main.ts";
-import { printLog } from "./utils.ts";
+import { printLog, regices } from "./utils.ts";
 
-const logSource = "DiscordJS";
-export let webhook: WebhookClient | null;
-export let discordBot: Client | null;
+const _logSource = "DiscordJS";
+let webhook: WebhookClient | null;
+let discordBot: Client | null;
 
-let customAvatars: { [key: string]: string };
+let customAvatars: { [key: string]: string } = {};
 let _checkPlayingIntervalID: number;
 
 export async function initBot(
@@ -25,7 +27,7 @@ export async function initBot(
     > | null,
 ) {
     const botCommands: {
-        [key: string]: (message: Message) => Promise<void> | void;
+        [key: string]: (message: Message) => Promise<unknown> | unknown;
     } = {
         ping: async (message) => {
             await sendWebhook({
@@ -70,7 +72,7 @@ export async function initBot(
 
                 if (url == null) {
                     const errorMsg = "Invalid URL";
-                    printLog({ from: logSource, isError: true }, errorMsg);
+                    printLog({ from: _logSource, isError: true }, errorMsg);
                     await sendWebhook({
                         options: {
                             content: errorMsg,
@@ -87,46 +89,59 @@ export async function initBot(
                 msgError = `Failed to set avatar of user \`${playerName}\` to <${url}>`;
             }
 
-            await Deno.writeTextFile(
-                config.webhook.customAvatarsDb,
-                JSON.stringify(avatars, null, 4),
-            )
-                .then(() => {
-                    printLog({ from: logSource }, msg + msgLog);
-                    customAvatars = avatars;
+            if (config.webhook.customAvatarsDb.length != 0) {
+                return await Deno.writeTextFile(
+                    config.webhook.customAvatarsDb,
+                    JSON.stringify(avatars, null, 4),
+                )
+                    .then(() => {
+                        printLog({ from: _logSource }, msg + msgLog);
+                        customAvatars = avatars;
 
-                    return sendWebhook({
-                        options: {
-                            content: msg + msgEmbed,
-                            ...(url != null
-                                ? {
-                                      embeds: [
-                                          {
-                                              image: {
-                                                  url: url,
+                        return sendWebhook({
+                            options: {
+                                content: msg + msgEmbed,
+                                ...(url != null
+                                    ? {
+                                          embeds: [
+                                              {
+                                                  image: {
+                                                      url: url,
+                                                  },
                                               },
-                                          },
-                                      ],
-                                  }
-                                : {}),
-                        },
-                        isManualMsg: true,
+                                          ],
+                                      }
+                                    : {}),
+                            },
+                            isManualMsg: true,
+                        });
+                    })
+                    .catch((error) => {
+                        const errorMsg = msgError;
+                        printLog(
+                            { from: _logSource, isError: true },
+                            errorMsg + ":",
+                            error,
+                        );
+                        return sendWebhook({
+                            options: {
+                                content: errorMsg,
+                            },
+                            isManualMsg: true,
+                        });
                     });
-                })
-                .catch((error) => {
-                    const errorMsg = msgError;
-                    printLog(
-                        { from: logSource, isError: true },
-                        errorMsg + ":",
-                        error,
-                    );
-                    return sendWebhook({
-                        options: {
-                            content: errorMsg,
-                        },
-                        isManualMsg: true,
-                    });
-                });
+            }
+            printLog(
+                { from: _logSource, isError: true },
+                "Avatars file not set: Could not change custom avatar.",
+            );
+            return await sendWebhook({
+                options: {
+                    content:
+                        "Avatars file not set: Could not change custom avatar.",
+                },
+                isManualMsg: true,
+            });
         },
         stop: async (message) => {
             if (!config.adminUserIDs.includes(message.author.id)) return;
@@ -162,32 +177,34 @@ export async function initBot(
         .once(Events.ClientReady, (readyClient) => {
             printLog(
                 {
-                    from: logSource,
+                    from: _logSource,
                     logLevel: 1,
                 },
                 "Logged in as",
                 readyClient.user.tag,
             );
 
-            try {
-                Deno.lstatSync(config.webhook.customAvatarsDb);
-            } catch (_) {
-                Deno.writeFileSync(
-                    config.webhook.customAvatarsDb,
-                    new TextEncoder().encode("{}"),
-                );
-            }
-            try {
-                customAvatars = JSON.parse(
-                    new TextDecoder("utf-8").decode(
-                        Deno.readFileSync(
-                            //
-                            config.webhook.customAvatarsDb,
+            if (config.webhook.customAvatarsDb.length != 0) {
+                try {
+                    Deno.lstatSync(config.webhook.customAvatarsDb);
+                } catch (_) {
+                    Deno.writeFileSync(
+                        config.webhook.customAvatarsDb,
+                        new TextEncoder().encode("{}"),
+                    );
+                }
+                try {
+                    customAvatars = JSON.parse(
+                        new TextDecoder("utf-8").decode(
+                            Deno.readFileSync(
+                                //
+                                config.webhook.customAvatarsDb,
+                            ),
                         ),
-                    ),
-                );
-            } catch (error) {
-                printLog({ from: logSource, isError: true }, error);
+                    );
+                } catch (error) {
+                    printLog({ from: _logSource, isError: true }, error);
+                }
             }
 
             _checkPlayingIntervalID = setInterval(
@@ -196,7 +213,7 @@ export async function initBot(
                         new TextEncoder().encode("playing\n"),
                     );
                 },
-                30 * 60 * 1000, // 30min
+                2 * 60 * 60 * 1000, // 2hrs
             );
         })
         .on(Events.MessageCreate, async (message) => {
@@ -212,26 +229,13 @@ export async function initBot(
                 );
                 // return message.content.startsWith(config.bot.prefix + e[0]);
             })?.[1];
-            if (command != null) {
-                await command(message);
-                return;
-            }
+            if (command != null) return await command(message);
 
-            const outputStr = message.cleanContent //
-                .split("\n")
-                .map(
-                    (m) =>
-                        `say [color/FFFFFF:${message.author.username}:] ${m}\n`,
-                );
-            const encoder = new TextEncoder();
-            for (const line of outputStr) {
-                const encodedText = encoder.encode(line);
-                await stdinWriter?.write(encodedText);
-            }
+            await forwardToTerraria(message);
         })
         .on(Events.Error, (error) => {
             printLog(
-                { from: logSource, logLevel: 1, isError: true },
+                { from: _logSource, logLevel: 1, isError: true },
                 "An error occured in the botClient:",
                 error,
             );
@@ -241,7 +245,7 @@ export async function initBot(
         .login(config.bot.token)
         .catch((error) => {
             printLog(
-                { from: logSource, logLevel: 1, isError: true },
+                { from: _logSource, logLevel: 1, isError: true },
                 "An error occured when initializing the botClient:",
                 error,
             );
@@ -272,7 +276,7 @@ export async function initBot(
             new WebhookClient(webhook) //
                 .on(Events.Error, (error) => {
                     printLog(
-                        { from: logSource, logLevel: 1, isError: true },
+                        { from: _logSource, logLevel: 1, isError: true },
                         "An error occured in the webhookClient:",
                         error,
                     );
@@ -280,7 +284,7 @@ export async function initBot(
         )
         .catch((error) => {
             printLog(
-                { from: logSource, logLevel: 1, isError: true },
+                { from: _logSource, logLevel: 1, isError: true },
                 "An error occured when initializing the webhookClient:",
                 error,
             );
@@ -295,6 +299,82 @@ export async function initBot(
         webhookURL: webhook?.url,
         destroy: stopBot,
     };
+
+    async function forwardToTerraria(message: Message) {
+        const reMessage = //
+            message.reference
+                ? await message.channel.messages.fetch(
+                      message.reference.messageId!,
+                  )
+                : null;
+
+        const attachments = //
+            message.attachments.values().toArray().length > 0
+                ? message.attachments
+                      .values()
+                      .toArray()
+                      .map((e) => `<${e.name}>`)
+                : null;
+
+        let linesIt = 0;
+        const lines = message.cleanContent //
+            .split("\n");
+        const outputStrList = lines.map((msg) => {
+            const [startTag, endTag] = ["[color/FFFFFF:", "]"];
+            const [startLinkTag, endLinkTag] = ["[color/232AFC:", "]"];
+
+            const thisMsg = msg
+                .replace(
+                    //
+                    regices.linkOnlyMessage,
+                    (_, urlStart, urlEnd) => {
+                        let output = urlStart;
+                        if (urlEnd) output += "/.../" + urlEnd;
+                        return output;
+                    },
+                )
+                .replaceAll(
+                    regices.chatTagsInForwardedMsg,
+                    `${endTag}$&${startTag}`,
+                );
+            const output =
+                `say ${startTag}@${message.author.username}` +
+                (reMessage //
+                    ? " to " +
+                      (reMessage.author.bot || reMessage.author.system
+                          ? ""
+                          : "@") +
+                      reMessage.author.username
+                    : "") +
+                ": " +
+                (lines.length > 1 //
+                    ? `{${++linesIt}/${lines.length}} `
+                    : "") +
+                thisMsg +
+                (attachments //
+                    ? (thisMsg.length > 0 ? " | " : "") +
+                      endTag +
+                      startLinkTag +
+                      attachments.join(
+                          endLinkTag + startTag + ", " + endTag + startLinkTag,
+                      ) +
+                      endLinkTag +
+                      startTag
+                    : "") +
+                endTag +
+                "\n";
+            return output.replaceAll(
+                //
+                regices.emptyChatTags,
+                "",
+            );
+        });
+        const encoder = new TextEncoder();
+        for (const line of outputStrList) {
+            const encodedText = encoder.encode(line);
+            await stdinWriter?.write(encodedText);
+        }
+    }
 }
 
 let timeOfLastMsg = -Infinity;
@@ -370,21 +450,7 @@ export async function sendWebhook({
 
 async function stopBot() {
     const stopMessage = "Integration Stopped.";
-    discordBot?.user?.setActivity("");
-    await new Promise<void>((resolve, _) => {
-        let intervalID: number | null = null;
-        intervalID = setInterval(
-            async () => {
-                const fetchedUser = await discordBot?.user?.fetch();
-                if (fetchedUser?.client.user.presence.activities.length == 0) {
-                    clearInterval(intervalID!);
-                    resolve();
-                }
-            },
-            500,
-            intervalID,
-        );
-    });
+    await setBotActivity(null);
 
     await sendWebhook({
         options: { content: stopMessage + " :wave: Goodbye!" },
@@ -392,6 +458,125 @@ async function stopBot() {
     });
     await webhook?.delete(stopMessage);
 
-    await discordBot?.destroy();
-    printLog({ from: logSource, logLevel: 1 }, stopMessage);
+    if (config.bot.destroyAfterStop) await discordBot?.destroy();
+    printLog({ from: _logSource, logLevel: 1 }, stopMessage);
+}
+
+export async function setBotActivity(input: string | null) {
+    if (!config.bot.enableActivity) return;
+
+    let output;
+
+    const user = discordBot?.user;
+    if (input == null) {
+        output = user?.setActivity("");
+        if (!user) {
+            printLog({ from: _logSource, isError: true }, "User not found");
+            throw new Error("User not found");
+        }
+        await waitForActivityChange(null);
+    } else {
+        const activityGoal = {
+            name: input,
+        };
+        output = user?.setActivity(activityGoal);
+        if (!user) {
+            printLog({ from: _logSource, isError: true }, "User not found");
+            throw new Error(`User not found`);
+        }
+        await waitForActivityChange(activityGoal);
+    }
+    return output;
+
+    async function waitForActivityChange(goal: ActivityOptions | null) {
+        const delay = 500;
+        const timeout = 10 * delay + 1;
+        const now = new Date().getTime();
+
+        const check = (
+            activities: Activity[],
+            goal: ActivityOptions | null,
+        ) => {
+            return goal
+                ? activities.some((a) => a.name == goal.name)
+                : activities.length == 0;
+        };
+
+        return await new Promise<boolean>((resolve, _) => {
+            let intervalID: number | null = null;
+            intervalID = setInterval(
+                async (id: number, activityGoal: ActivityOptions | null) => {
+                    const fetchedActivities = await discordBot?.user
+                        ?.fetch()
+                        .then((u) => u?.client.user.presence.activities);
+                    if (
+                        fetchedActivities &&
+                        check(fetchedActivities, activityGoal)
+                    ) {
+                        clearInterval(id!);
+                        return resolve(true);
+                    }
+                    if (new Date().getTime() - now > timeout) {
+                        clearInterval(id!);
+                        return resolve(false);
+                    }
+                },
+                delay,
+                intervalID,
+                goal,
+            );
+        });
+    }
+}
+
+export async function parseMentions(input: string) {
+    const matchesArr = input.matchAll(regices.mentionDiscordUser).toArray();
+    if (matchesArr.length == 0) return input;
+
+    const guildId = await discordBot?.channels
+        .fetch(config.webhook.channelID)
+        .then((c) => (c as TextChannel)?.guildId);
+
+    if (guildId == null) {
+        printLog({ from: _logSource, isError: true }, "guildId is null.");
+        return input;
+    }
+
+    const members = await discordBot?.guilds
+        .fetch(guildId)
+        .then((g) => g.members);
+
+    const mentionLookupDict: { [key: string]: string | undefined } = {
+        everyone: "@DO_NOT",
+        here: "@DO_NOT",
+    };
+    for (const match of matchesArr) {
+        const username = match.groups!["username"];
+
+        if (username == "everyone" || username == "here") continue;
+
+        mentionLookupDict[username] = await members
+            ?.search({
+                query: username,
+            })
+            .then(
+                (m) =>
+                    m
+                        .mapValues((m) => m.user.toString())
+                        .values()
+                        .toArray()[0],
+            );
+    }
+
+    const output = input.replaceAll(
+        regices.mentionDiscordUser,
+        (match, ...m) => {
+            const username: string = m.findLast(() => true)?.["username"] ?? "";
+            const foundUserMention = mentionLookupDict[username];
+
+            return foundUserMention ?? match;
+        },
+    );
+
+    return output;
 }

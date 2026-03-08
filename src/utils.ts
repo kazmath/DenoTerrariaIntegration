@@ -2,7 +2,7 @@ import itemIDs from "../assets/item_ids.json" with { type: "json" };
 import modifierIDs from "../assets/modifier_ids.json" with { type: "json" };
 import config from "../config.json" with { type: "json" };
 
-const logSource = "Utils";
+const _logSource = "Utils";
 
 export const regices = {
     chatMessage: /^<(?<player>.*?)> (?<message>.*)$/,
@@ -12,9 +12,15 @@ export const regices = {
     serverProcess: /^(?<operation>.*?):? (?<progressPerc>[0-9]{1,3})%$/,
     serverOperation: /^(?<operation>.*?[^a-zA-Z0-9]*)$/,
     textTag:
-        /\[(?<identifier>[a-z]+)(?:\/(?<options>[a-zA-Z0-9]+))?:(?<text>[^\]]*)\]/g,
-    forwardedDiscordMessage: /^\[color\/FFFFFF:[^\[\]]+:\] /,
+        /\[(?<identifier>[a-z]+)(?:\/(?<options>[a-zA-Z0-9]+))?:(?<text>[^\]]+)\]/g,
+    forwardedDiscordMessage:
+        /^\[color\/FFFFFF:(?<author>@[a-zA-Z0-9_\.]+)(?: to (?<re_author>@?[a-zA-Z0-9_\.]+))?:(?<message>.*)\]$/,
+    emptyChatTags: /\[color\/FFFFFF:\]/g,
     playersConnected: /^(?<amount>[0-9]+|No) players? connected\./,
+    mentionDiscordUser: /@(?<username>[a-zA-Z0-9_\.]+)/g,
+    chatTagsInForwardedMsg: /\[[a-z](?:\/\w+)?:[^\[\]]+\]/g,
+    linkOnlyMessage:
+        /^(https?:\/\/[^\/\n]+(?:\/[^\/\n]+)?)(?:.*\/((?:[^\/\n]+){1}))?$/,
 };
 const connectedIPs: {
     [key: string]: string;

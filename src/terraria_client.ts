@@ -1,10 +1,10 @@
 import * as path from "@std/path";
 import { TextLineStream } from "@std/streams/text-line-stream";
 import config from "../config.json" with { type: "json" };
-import { discordBot, sendWebhook } from "./bot_client.ts";
+import { parseMentions, sendWebhook, setBotActivity } from "./bot_client.ts";
 import { hideIP, parseTags, printLog, regices } from "./utils.ts";
 
-const logSource = "TerrariaServer";
+const _logSource = "TerrariaServer";
 
 let terrariaProcess: Deno.ChildProcess;
 let stdinWriter: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>>;
@@ -47,19 +47,19 @@ async function stopServer() {
     await stdinWriter.write(new TextEncoder().encode("exit\n"));
     await stdinWriter.close();
     const output = await terrariaProcess.output();
-    printLog({ from: logSource, logLevel: 1 }, "Terraria Server stopped");
+    printLog({ from: _logSource, logLevel: 1 }, "Terraria Server stopped");
     new TextDecoder()
         .decode(output.stdout)
         .split("\n")
         .forEach((e) => {
-            printLog({ from: logSource, logLevel: 1 }, e);
+            printLog({ from: _logSource, logLevel: 1 }, e);
         });
 
     return output;
     // terrariaProcess.kill("SIGTERM");
 }
 
-export function handleChatMessage(line: string, show: boolean = true) {
+export async function handleChatMessage(line: string, show: boolean = true) {
     const matches = regices.chatMessage.exec(line);
 
     if (matches == null) return false;
@@ -67,7 +67,7 @@ export function handleChatMessage(line: string, show: boolean = true) {
     const player = matches.groups!["player"];
     const message = matches.groups!["message"];
 
-    printLog({ from: logSource + "(ChatMessage)" }, line);
+    printLog({ from: _logSource + "(ChatMessage)" }, line);
     if (!show) return true;
 
     if (player == "Server" && message.match(regices.forwardedDiscordMessage)) {
@@ -77,7 +77,7 @@ export function handleChatMessage(line: string, show: boolean = true) {
     sendWebhook({
         options: {
             username: parseTags(player),
-            content: parseTags(message),
+            content: await parseMentions(parseTags(message)),
         },
     });
     return true;
@@ -91,7 +91,7 @@ export function handleJoinLeave(line: string, show: boolean = true) {
     const player = matches.groups!["player"];
     const type = matches.groups!["type"];
 
-    printLog({ from: logSource + "(JoinLeave)" }, line);
+    printLog({ from: _logSource + "(JoinLeave)" }, line);
     setTimeout(
         () => stdinWriter.write(new TextEncoder().encode("playing\n")),
         5000,
@@ -114,13 +114,11 @@ export function handleServerOperation(line: string, show: boolean = true) {
 
     const operation = matches.groups!["operation"];
 
-    printLog({ from: logSource + "(ServerOperation)", logLevel: 2 }, line);
+    printLog({ from: _logSource + "(ServerOperation)", logLevel: 2 }, line);
 
     let m;
     if ((m = operation.match(regices.playersConnected))) {
-        discordBot?.user?.setActivity({
-            name: m[0],
-        });
+        setBotActivity(m[0]);
     }
 
     if (!show) return true;
@@ -145,7 +143,7 @@ export function handleServerProcess(line: string, show: boolean = true) {
     const operation = matches.groups!["operation"];
     const progressPerc = matches.groups!["progressPerc"];
 
-    printLog({ from: logSource + "(ServerProcess)", logLevel: 3 }, line);
+    printLog({ from: _logSource + "(ServerProcess)", logLevel: 3 }, line);
     if (!show) return true;
 
     sendWebhook({
@@ -172,7 +170,7 @@ export function handleServerConnection(line: string, show: boolean = true) {
     const operation = matches.groups!["operation"];
     const details = matches.groups!["details"];
 
-    printLog({ from: logSource + "(ServerConnection)", logLevel: 3 }, line);
+    printLog({ from: _logSource + "(ServerConnection)", logLevel: 3 }, line);
     if (!show) return true;
 
     sendWebhook({
