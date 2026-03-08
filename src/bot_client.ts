@@ -19,7 +19,7 @@ let webhook: WebhookClient | null;
 let discordBot: Client | null;
 
 let customAvatars: { [key: string]: string } = {};
-let _checkPlayingIntervalID: number;
+// let checkPlayingIntervalID: number;
 
 export async function initBot(
     stdinWriter: WritableStreamDefaultWriter<
@@ -207,14 +207,19 @@ export async function initBot(
                 }
             }
 
-            _checkPlayingIntervalID = setInterval(
-                async () => {
-                    await stdinWriter?.write(
-                        new TextEncoder().encode("playing\n"),
-                    );
-                },
-                2 * 60 * 60 * 1000, // 2hrs
-            );
+            // This is way too annoying and I suspect is the reason the server
+            // keeps crashing
+            //
+            // if (config.bot.enableActivity) {
+            //     checkPlayingIntervalID = setInterval(
+            //         async () => {
+            //             await stdinWriter?.write(
+            //                 new TextEncoder().encode("playing\n"),
+            //             );
+            //         },
+            //         2 * 60 * 60 * 1000, // 2hrs
+            //     );
+            // }
         })
         .on(Events.MessageCreate, async (message) => {
             if (message.channelId != config.webhook.channelID) return;
@@ -451,7 +456,7 @@ export async function sendWebhook({
 async function stopBot() {
     const stopMessage = "Integration Stopped.";
     await setBotActivity(null);
-
+    // clearInterval(checkPlayingIntervalID);
     await sendWebhook({
         options: { content: stopMessage + " :wave: Goodbye!" },
         isManualMsg: true,
