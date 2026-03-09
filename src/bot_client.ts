@@ -1,6 +1,7 @@
 import {
     Activity,
     ActivityOptions,
+    APIMessage,
     Client,
     Events,
     GatewayIntentBits,
@@ -11,7 +12,8 @@ import {
     WebhookMessageCreateOptions,
 } from "discord.js";
 import config from "../config.json" with { type: "json" };
-import { enableIntegration } from "./main.ts";
+import { exitGracefully, processes } from "./main.ts";
+import { spawnTerraria } from "./terraria_client.ts";
 import { printLog, regices } from "./utils.ts";
 
 const _logSource = "DiscordJS";
@@ -21,11 +23,7 @@ let discordBot: Client | null;
 let customAvatars: { [key: string]: string } = {};
 // let checkPlayingIntervalID: number;
 
-export async function initBot(
-    stdinWriter: WritableStreamDefaultWriter<
-        Uint8Array<ArrayBufferLike>
-    > | null,
-) {
+export async function initBot(): Promise<IDiscordBotProcess> {
     const botCommands: {
         [key: string]: (message: Message) => Promise<unknown> | unknown;
     } = {
@@ -143,15 +141,43 @@ export async function initBot(
                 isManualMsg: true,
             });
         },
-        stop: async (message) => {
+        restart: async (message) => {
             if (!config.adminUserIDs.includes(message.author.id)) return;
 
             await sendWebhook({
                 options: {
-                    content: `Not implemented.`,
+                    content: "Restarting integration... :repeat:",
                 },
                 isManualMsg: true,
             });
+
+            try {
+                const _terrariaFinalWords =
+                    await processes.terraria?.destroy(true);
+
+                processes.enableIntegration = false;
+                processes.terraria = spawnTerraria(
+                    config.terraria.binaryPath,
+                    config.terraria.configPath,
+                );
+            } catch (error) {
+                const errorMsg = "Could not restart the terraria server";
+                printLog(
+                    { from: _logSource, isError: true, logLevel: 1 },
+                    errorMsg + ":",
+                    error,
+                );
+
+                processes.terraria!.state = "Stopped";
+
+                await sendWebhook({
+                    options: {
+                        content: errorMsg,
+                    },
+                    isManualMsg: true,
+                });
+                await exitGracefully();
+            }
         },
         exec: async (message) => {
             if (!config.adminUserIDs.includes(message.author.id)) return;
@@ -162,7 +188,7 @@ export async function initBot(
                     .split("\n")[0] + "\n";
             const encodedText = new TextEncoder().encode(outputStr);
 
-            await stdinWriter?.write(encodedText);
+            await processes.terraria?.stdin?.write(encodedText);
         },
     };
 
@@ -207,8 +233,9 @@ export async function initBot(
                 }
             }
 
-            // This is way too annoying and I suspect is the reason the server
-            // keeps crashing
+            // ~~This is way too annoying and I suspect is the reason the server keeps crashing~~
+            // didn't work :(
+            // but I still don't like this so it's gonna stay commented
             //
             // if (config.bot.enableActivity) {
             //     checkPlayingIntervalID = setInterval(
@@ -377,7 +404,7 @@ export async function initBot(
         const encoder = new TextEncoder();
         for (const line of outputStrList) {
             const encodedText = encoder.encode(line);
-            await stdinWriter?.write(encodedText);
+            await processes.terraria?.stdin?.write(encodedText);
         }
     }
 }
@@ -394,8 +421,8 @@ export async function sendWebhook({
     options: WebhookMessageCreateOptions;
     isServerMsg?: boolean;
     isManualMsg?: boolean;
-}) {
-    if (!enableIntegration && !isManualMsg) return;
+}): Promise<APIMessage | undefined> {
+    if (!processes.enableIntegration && !isManualMsg) return;
 
     const tempOptions = options;
     if (tempOptions.username == "" || tempOptions.username == null) {
@@ -411,8 +438,7 @@ export async function sendWebhook({
             tempOptions.avatarURL = config.webhook.avatarURL;
         }
     }
-    tempOptions.content?.trim();
-    if (tempOptions.content == "" || tempOptions.content == null) {
+    if (tempOptions.content?.trim() == "" || tempOptions.content == null) {
         return;
     }
 
@@ -432,7 +458,7 @@ export async function sendWebhook({
                         queuedMessages.splice(0).join("\n") + //
                         "\n```";
                     timeOfLastMsg = new Date().getTime();
-                    await webhook!.send({
+                    await webhook?.send({
                         avatarURL: undefined,
                         username: "Server",
                         content: messageContent,
@@ -445,7 +471,7 @@ export async function sendWebhook({
                 }, rateLimit / 2);
             }
 
-            return null;
+            return;
         }
         tempOptions.content = "```\n" + tempOptions.content + "\n```";
     }
@@ -453,17 +479,18 @@ export async function sendWebhook({
     return await webhook?.send(tempOptions); //
 }
 
-async function stopBot() {
+async function stopBot(): Promise<void> {
     const stopMessage = "Integration Stopped.";
     await setBotActivity(null);
     // clearInterval(checkPlayingIntervalID);
-    await sendWebhook({
+    const webhookReturn = await sendWebhook({
         options: { content: stopMessage + " :wave: Goodbye!" },
         isManualMsg: true,
     });
-    await webhook?.delete(stopMessage);
 
+    if (webhookReturn) await webhook?.delete(stopMessage);
     if (config.bot.destroyAfterStop) await discordBot?.destroy();
+
     printLog({ from: _logSource, logLevel: 1 }, stopMessage);
 }
 
@@ -584,4 +611,12 @@ export async function parseMentions(input: string) {
     );
 
     return output;
+}
+
+export interface IDiscordBotProcess {
+    botClient: Client<boolean>;
+    webhookClient: WebhookClient | null;
+    botToken: string | null;
+    webhookURL: string | undefined;
+    destroy: (() => Promise<void>) | (() => Promise<void>);
 }

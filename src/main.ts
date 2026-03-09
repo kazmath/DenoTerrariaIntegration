@@ -1,20 +1,31 @@
 import config from "../config.json" with { type: "json" };
-import { initBot as initDiscordJs, sendWebhook } from "./bot_client.ts";
+import {
+    IDiscordBotProcess,
+    initBot as initDiscordJs,
+    sendWebhook,
+} from "./bot_client.ts";
 import {
     handleChatMessage,
     handleJoinLeave,
     handleServerConnection,
     handleServerOperation,
     handleServerProcess,
+    ITerrariaProcess,
     spawnTerraria,
 } from "./terraria_client.ts";
 import { printLog } from "./utils.ts";
 
 const _logSource = "Main";
 let exitingGracefully = false;
-let timeoutID: number | null = null;
+// let timeoutID: number | null = null;
 
-export let enableIntegration = false;
+export const processes: {
+    terraria?: ITerrariaProcess;
+    discordBot?: IDiscordBotProcess;
+    enableIntegration: boolean;
+} = {
+    enableIntegration: false,
+};
 
 const isNotNull = (e: unknown) =>
     e != null && (typeof e != "object" || Object.values(e).every(isNotNull));
@@ -26,12 +37,15 @@ if (!isNotNull(config)) {
 main();
 
 async function main() {
-    const terraria = spawnTerraria();
+    processes.terraria = spawnTerraria(
+        config.terraria.binaryPath,
+        config.terraria.configPath,
+    );
     // const terraria: any = { stdout: [] };
 
-    passStdInTo(terraria.stdin);
+    passStdInTo(processes.terraria.stdin);
 
-    const discordClients = await initDiscordJs(terraria.stdin);
+    processes.discordBot = await initDiscordJs();
 
     // Deno.addSignalListener("SIGINT", () => {
     //     console.log("interrupted!");
@@ -39,91 +53,97 @@ async function main() {
     // });
     Deno.addSignalListener(
         "SIGINT",
-        async () => await exitGracefully(discordClients, terraria),
+        async () =>
+            await exitGracefully(
+                //
+                processes.discordBot,
+                processes.terraria,
+            ),
     );
 
-    for await (const line of terraria.stdout) {
-        const lineTemp = line.replace(/^(: )*/, "");
+    do {
+        for await (const line of processes.terraria.stdout ?? []) {
+            const lineTemp = line.replace(/^(: )*/, "");
 
-        if (lineTemp.includes("Server started")) {
-            enableIntegration = true;
-            printLog({ from: _logSource, logLevel: 1 }, "Integration Started.");
-            await sendWebhook({
-                options: {
-                    content: "Integration Started: :white_check_mark: Hello!",
-                },
-                isManualMsg: true,
-            });
-            timeoutID = setTimeout(() => {
-                terraria.stdin.write(
-                    //
-                    new TextEncoder().encode("playing\n"),
+            if (lineTemp.includes("Server started")) {
+                processes.enableIntegration = true;
+                printLog(
+                    { from: _logSource, logLevel: 1 },
+                    "Integration Started.",
                 );
-                timeoutID = null;
-            }, 5000);
-        }
+                await sendWebhook({
+                    options: {
+                        content:
+                            "Integration Started: :white_check_mark: Hello!",
+                    },
+                    isServerMsg: true,
+                    isManualMsg: true,
+                });
+            }
 
-        if (
-            await handleChatMessage(
-                //
-                lineTemp,
-                config.forwardTypes.chatMessage,
-            )
-        ) {
-            continue;
-        }
+            if (
+                await handleChatMessage(
+                    //
+                    lineTemp,
+                    config.forwardTypes.chatMessage,
+                )
+            ) {
+                continue;
+            }
 
-        if (
-            handleJoinLeave(
-                //
-                lineTemp,
-                config.forwardTypes.joinLeave,
-            )
-        ) {
-            continue;
-        }
+            if (
+                handleJoinLeave(
+                    //
+                    lineTemp,
+                    config.forwardTypes.joinLeave,
+                )
+            ) {
+                continue;
+            }
 
-        if (
-            handleServerConnection(
-                //
-                lineTemp,
-                config.forwardTypes.serverConnection,
-            )
-        ) {
-            continue;
-        }
+            if (
+                handleServerConnection(
+                    //
+                    lineTemp,
+                    config.forwardTypes.serverConnection,
+                )
+            ) {
+                continue;
+            }
 
-        if (
-            handleServerProcess(
-                //
-                lineTemp,
-                config.forwardTypes.serverProcess,
-            )
-        ) {
-            continue;
-        }
+            if (
+                handleServerProcess(
+                    //
+                    lineTemp,
+                    config.forwardTypes.serverProcess,
+                )
+            ) {
+                continue;
+            }
 
-        if (
-            handleServerOperation(
-                //
-                lineTemp,
-                config.forwardTypes.serverOperation,
-            )
-        ) {
-            continue;
-        }
+            if (
+                handleServerOperation(
+                    //
+                    lineTemp,
+                    config.forwardTypes.serverOperation,
+                )
+            ) {
+                continue;
+            }
 
-        printLog({ logLevel: 1, isError: true }, lineTemp);
-    }
-    await exitGracefully(discordClients, terraria);
+            printLog({ logLevel: 1, isError: true }, lineTemp);
+        }
+        await new Promise<void>((r) => setTimeout(() => r(), 500));
+    } while (!["Stopped", "Stopping"].includes(processes.terraria.state));
+    await exitGracefully(processes.discordBot, processes.terraria);
 }
 
-async function exitGracefully(
-    discordClients: {
-        destroy: () => Promise<void>;
+export async function exitGracefully(
+    discordClients?: {
+        destroy: IDiscordBotProcess["destroy"];
     },
-    terraria: {
-        destroy: () => Promise<Deno.CommandOutput>;
+    terraria?: {
+        destroy: ITerrariaProcess["destroy"];
     },
 ) {
     if (exitingGracefully) return;
@@ -134,12 +154,10 @@ async function exitGracefully(
         "Attempting to shut down gracefully",
     );
 
-    if (timeoutID) clearTimeout(timeoutID);
-
     await Promise.allSettled([
         //
-        discordClients.destroy(),
-        terraria.destroy(),
+        discordClients?.destroy(),
+        terraria?.destroy(),
     ]);
 
     printLog({ from: _logSource, logLevel: 1 }, "Integration Stopped.");

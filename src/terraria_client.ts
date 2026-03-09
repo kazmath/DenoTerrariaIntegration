@@ -1,62 +1,137 @@
 import * as path from "@std/path";
 import { TextLineStream } from "@std/streams/text-line-stream";
-import config from "../config.json" with { type: "json" };
 import { parseMentions, sendWebhook, setBotActivity } from "./bot_client.ts";
 import { hideIP, parseTags, printLog, regices } from "./utils.ts";
 
 const _logSource = "TerrariaServer";
 
-let terrariaProcess: Deno.ChildProcess;
+let terrariaProcess: Deno.ChildProcess | null | undefined;
 let stdinWriter: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>>;
 let stdout: ReadableStream<string>;
 let stderr: ReadableStream<string>;
-export function spawnTerraria() {
-    const command = new Deno.Command(config.terraria.binaryPath, {
-        args: ["-config", config.terraria.configPath],
-        stdin: "piped",
-        stdout: "piped",
-        stderr: "piped",
-        cwd: path.dirname(config.terraria.binaryPath),
-    });
-    terrariaProcess = command.spawn();
-    stdinWriter = terrariaProcess.stdin.getWriter();
-    stdout = terrariaProcess.stdout
-        .pipeThrough(new TextDecoderStream())
-        .pipeThrough(new TextLineStream());
-    stderr = terrariaProcess.stderr
-        .pipeThrough(new TextDecoderStream())
-        .pipeThrough(new TextLineStream());
+let state: ITerrariaProcess["state"] = "Stopped";
+export function spawnTerraria(
+    binaryPath: string,
+    configPath: string,
+): ITerrariaProcess {
+    state = "Starting";
+    try {
+        const command = new Deno.Command(binaryPath, {
+            args: ["-config", configPath],
+            stdin: "piped",
+            stdout: "piped",
+            stderr: "piped",
+            cwd: path.dirname(binaryPath),
+        });
+        terrariaProcess = command.spawn();
+        stdinWriter = terrariaProcess.stdin.getWriter();
+        stdout = terrariaProcess.stdout
+            .pipeThrough(new TextDecoderStream())
+            .pipeThrough(new TextLineStream());
+        stderr = terrariaProcess.stderr
+            .pipeThrough(new TextDecoderStream())
+            .pipeThrough(new TextLineStream());
 
-    handleStdErr(stderr);
+        handleStdErr(stderr);
 
-    return {
-        process: terrariaProcess,
-        stdout: stdout,
-        stdin: stdinWriter,
-        destroy: stopServer,
-    };
+        return {
+            process: terrariaProcess,
+            stdout: stdout,
+            stdin: stdinWriter,
+            destroy: stopServer,
+            state: (state = "Running"),
+        };
+    } catch (error) {
+        return {
+            destroy: async (_?: unknown) => await null,
+            state: (state = "Stopped"),
+            error: error,
+        };
+    }
 }
 
 async function handleStdErr(stderrStream: ReadableStream<string>) {
-    for await (const line of stderrStream) {
+    for await (const line of stderrStream.values()) {
         printLog({ from: "StdErr", logLevel: 1, isError: true }, line);
     }
 }
 
-async function stopServer() {
-    await stdinWriter.write(new TextEncoder().encode("exit\n"));
+async function stopServer(
+    isRestarting: boolean = false,
+): Promise<Deno.CommandOutput | null> {
+    if (terrariaProcess == null || state != "Running") {
+        printLog({ from: _logSource }, "Could not stop terraria server.");
+        return null;
+    }
+    state = isRestarting ? "Restarting" : "Stopping";
+
+    const output = await new Promise<Deno.CommandOutput | null>(
+        (resolve, reject) => {
+            stdinWriter.write(new TextEncoder().encode("exit\n"));
+
+            let isResolved = false;
+            const output = terrariaProcess!
+                .output()
+                .then((o) => {
+                    isResolved = true;
+                    return o;
+                })
+                .catch((error) => {
+                    if (error instanceof TypeError && stdout.locked) {
+                        printLog(
+                            { from: _logSource, isError: true },
+                            "Couldn't retrieve server's last messages: Stdout was locked.",
+                        );
+                    } else {
+                        printLog({ from: _logSource, isError: true }, error);
+                    }
+
+                    isResolved = true;
+                    return null;
+                });
+
+            const maxTries = 50;
+            let i = 0;
+            let intervalID = 0;
+            intervalID = setInterval(
+                (id, resolve, reject) => {
+                    i++;
+                    if (isResolved) {
+                        clearInterval(id);
+                        return resolve(output);
+                    }
+                    if (i >= maxTries) {
+                        clearInterval(id);
+                        terrariaProcess!.kill("SIGTERM");
+                        return reject(
+                            "Terraria process didn't respond, so it was forcibly stopped.",
+                        );
+                    }
+                },
+                500,
+                intervalID,
+                resolve,
+                reject,
+            );
+        },
+    );
+
     await stdinWriter.close();
-    const output = await terrariaProcess.output();
+
     printLog({ from: _logSource, logLevel: 1 }, "Terraria Server stopped");
-    new TextDecoder()
-        .decode(output.stdout)
-        .split("\n")
-        .forEach((e) => {
-            printLog({ from: _logSource, logLevel: 1 }, e);
-        });
+    if (output != null) {
+        new TextDecoder()
+            .decode(output.stdout)
+            .split("\n")
+            .forEach((e) => {
+                printLog({ from: _logSource, logLevel: 1 }, e);
+            });
+    }
+
+    terrariaProcess = null;
+    state = isRestarting ? "Restarting" : "Stopped";
 
     return output;
-    // terrariaProcess.kill("SIGTERM");
 }
 
 export async function handleChatMessage(line: string, show: boolean = true) {
@@ -92,17 +167,18 @@ export function handleJoinLeave(line: string, show: boolean = true) {
     const type = matches.groups!["type"];
 
     printLog({ from: _logSource + "(JoinLeave)" }, line);
-    setTimeout(
-        () => stdinWriter.write(new TextEncoder().encode("playing\n")),
-        5000,
-    );
-    if (!show) return true;
+    if (!show) {
+        stdinWriter.write(new TextEncoder().encode("playing\n"));
+        return true;
+    }
 
     sendWebhook({
         options: {
             username: parseTags(player),
             content: `**${player} has ${type}.**`,
         },
+    }).then((_) => {
+        stdinWriter.write(new TextEncoder().encode("playing\n"));
     });
     return true;
 }
@@ -113,6 +189,7 @@ export function handleServerOperation(line: string, show: boolean = true) {
     if (matches == null) return false;
 
     const operation = matches.groups!["operation"];
+    const doCheckPlayers = operation == "Server started";
 
     printLog({ from: _logSource + "(ServerOperation)", logLevel: 2 }, line);
 
@@ -121,7 +198,12 @@ export function handleServerOperation(line: string, show: boolean = true) {
         setBotActivity(m[0]);
     }
 
-    if (!show) return true;
+    if (!show) {
+        if (doCheckPlayers) {
+            stdinWriter.write(new TextEncoder().encode("playing\n"));
+        }
+        return true;
+    }
 
     sendWebhook({
         options: {
@@ -131,6 +213,10 @@ export function handleServerOperation(line: string, show: boolean = true) {
             ),
         },
         isServerMsg: true,
+    }).then((_) => {
+        if (doCheckPlayers) {
+            stdinWriter.write(new TextEncoder().encode("playing\n"));
+        }
     });
     return true;
 }
@@ -186,4 +272,13 @@ export function handleServerConnection(line: string, show: boolean = true) {
         isServerMsg: true,
     });
     return true;
+}
+
+export interface ITerrariaProcess {
+    stdin?: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>>;
+    stdout?: ReadableStream<string>;
+    process?: Deno.ChildProcess;
+    destroy: (isRestarting?: boolean) => Promise<Deno.CommandOutput | null>;
+    state: "Running" | "Starting" | "Restarting" | "Stopping" | "Stopped";
+    error?: unknown;
 }
