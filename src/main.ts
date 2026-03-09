@@ -41,6 +41,7 @@ async function main() {
         config.terraria.binaryPath,
         config.terraria.configPath,
     );
+    let thisPID = processes.terraria.process?.pid;
     // const terraria: any = { stdout: [] };
 
     passStdInTo(processes.terraria.stdin);
@@ -62,6 +63,10 @@ async function main() {
     );
 
     do {
+        if (processes.terraria.process?.pid != thisPID) {
+            thisPID = processes.terraria.process!.pid;
+        }
+
         for await (const line of processes.terraria.stdout ?? []) {
             const lineTemp = line.replace(/^(: )*/, "");
 
@@ -134,7 +139,10 @@ async function main() {
             printLog({ logLevel: 1, isError: true }, lineTemp);
         }
         await new Promise<void>((r) => setTimeout(() => r(), 500));
-    } while (!["Stopped", "Stopping"].includes(processes.terraria.state));
+    } while (
+        ["Restarting", "Starting"].includes(processes.terraria.state) ||
+        processes.terraria.process?.pid != thisPID
+    );
     await exitGracefully(processes.discordBot, processes.terraria);
 }
 
