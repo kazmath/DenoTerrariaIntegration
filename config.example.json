@@ -16,7 +16,9 @@
     "logLevel": 2,
     "terraria": {
         "binaryPath": null,
-        "configPath": null
+        "configPath": null,
+        "modded": false,
+        "moddedFolderPath": null
     },
     "webhook": {
         "avatarURL": "https://terraria.wiki.gg/images/Cell_Phone.png",

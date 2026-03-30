@@ -21,6 +21,8 @@ export const regices = {
     chatTagsInForwardedMsg: /\[[a-z](?:\/\w+)?:[^\[\]]+\]/g,
     linkOnlyMessage:
         /^(https?:\/\/[^\/\n]+(?:\/[^\/\n]+)?)(?:.*\/((?:[^\/\n]+){1}))?$/,
+    ipAddrGlobalMatch:
+        /([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})(?::[0-9]{1,5})?/g,
 };
 const connectedIPs: {
     [key: string]: string;
@@ -141,7 +143,7 @@ export function parseTags(input: string) {
     return output;
 }
 
-export function hideIP(ipAddr: string) {
+export function hideIP(_match: unknown, ipAddr: string) {
     let hiddenIP: string | undefined = Object.entries(connectedIPs).find(
         ([k, _]) => k == ipAddr,
     )?.[1];

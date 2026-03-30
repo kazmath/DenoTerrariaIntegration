@@ -12,12 +12,20 @@ let stderr: ReadableStream<string>;
 let state: ITerrariaProcess["state"] = "Stopped";
 export function spawnTerraria(
     binaryPath: string,
-    configPath: string,
+    options: {
+        configPath?: string;
+        moddedFolderPath?: string;
+        modded?: boolean;
+    },
 ): ITerrariaProcess {
     state = "Starting";
+    const args: string[] =
+        (options.modded ?? false)
+            ? ["start", "--folder", options.moddedFolderPath!]
+            : ["-config", options.configPath!];
     try {
         const command = new Deno.Command(binaryPath, {
-            args: ["-config", configPath],
+            args: args,
             stdin: "piped",
             stdout: "piped",
             stderr: "piped",
@@ -128,6 +136,7 @@ async function stopServer(
             });
     }
 
+    Deno.kill(terrariaProcess.pid, "SIGTERM");
     terrariaProcess = null;
     state = isRestarting ? "Restarting" : "Stopped";
 
@@ -193,9 +202,13 @@ export function handleServerOperation(line: string, show: boolean = true) {
 
     printLog({ from: _logSource + "(ServerOperation)", logLevel: 2 }, line);
 
-    let m;
+    let m: RegExpMatchArray | null;
     if ((m = operation.match(regices.playersConnected))) {
-        setBotActivity(m[0]);
+        let connectedAmount = Number(m.groups!.amount);
+        if (!Number.isFinite(connectedAmount)) {
+            connectedAmount = 0;
+        }
+        setBotActivity(m[0], connectedAmount);
     }
 
     if (!show) {
@@ -207,10 +220,7 @@ export function handleServerOperation(line: string, show: boolean = true) {
 
     sendWebhook({
         options: {
-            content: operation.replaceAll(
-                /[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]{1,5}/g,
-                hideIP,
-            ),
+            content: operation.replaceAll(regices.ipAddrGlobalMatch, hideIP),
         },
         isServerMsg: true,
     }).then((_) => {
@@ -236,10 +246,7 @@ export function handleServerProcess(line: string, show: boolean = true) {
         options: {
             content: (
                 operation + (progressPerc ? `: ${progressPerc}%` : "")
-            ).replaceAll(
-                /[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]{1,5}/g,
-                hideIP,
-            ),
+            ).replaceAll(regices.ipAddrGlobalMatch, hideIP),
         },
         isServerMsg: true,
     });
@@ -264,10 +271,7 @@ export function handleServerConnection(line: string, show: boolean = true) {
             content: (
                 `{${ipAddr}} ${verb} ${operation}` +
                 (details ? `: ${details}` : "")
-            ).replaceAll(
-                /[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[0-9]{1,5}/g,
-                hideIP,
-            ),
+            ).replaceAll(regices.ipAddrGlobalMatch, hideIP),
         },
         isServerMsg: true,
     });
@@ -278,6 +282,7 @@ export interface ITerrariaProcess {
     stdin?: WritableStreamDefaultWriter<Uint8Array<ArrayBufferLike>>;
     stdout?: ReadableStream<string>;
     process?: Deno.ChildProcess;
+    playerAmount?: number;
     destroy: (isRestarting?: boolean) => Promise<Deno.CommandOutput | null>;
     state: "Running" | "Starting" | "Restarting" | "Stopping" | "Stopped";
     error?: unknown;

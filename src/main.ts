@@ -37,10 +37,11 @@ if (!isNotNull(config)) {
 main();
 
 async function main() {
-    processes.terraria = spawnTerraria(
-        config.terraria.binaryPath,
-        config.terraria.configPath,
-    );
+    processes.terraria = spawnTerraria(config.terraria.binaryPath, {
+        modded: config.terraria.modded,
+        configPath: config.terraria.configPath,
+        moddedFolderPath: config.terraria.moddedFolderPath,
+    });
     let thisPID = processes.terraria.process?.pid;
     // const terraria: any = { stdout: [] };
 

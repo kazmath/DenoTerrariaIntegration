@@ -35,6 +35,15 @@ export async function initBot(): Promise<IDiscordBotProcess> {
                 isManualMsg: true,
             });
         },
+        playing: async (_) => {
+            const playerAmount = processes.terraria?.playerAmount;
+            await sendWebhook({
+                options: {
+                    content: `There ${playerAmount == 1 ? "is" : "are"} currently **${playerAmount}** player${playerAmount == 1 ? "" : "s"} online.`,
+                },
+                isManualMsg: true,
+            });
+        },
         avatar: async (message) => {
             if (!config.adminUserIDs.includes(message.author.id)) return;
 
@@ -156,10 +165,11 @@ export async function initBot(): Promise<IDiscordBotProcess> {
                     await processes.terraria?.destroy(true);
 
                 processes.enableIntegration = false;
-                processes.terraria = spawnTerraria(
-                    config.terraria.binaryPath,
-                    config.terraria.configPath,
-                );
+                processes.terraria = spawnTerraria(config.terraria.binaryPath, {
+                    modded: config.terraria.modded,
+                    configPath: config.terraria.configPath,
+                    moddedFolderPath: config.terraria.moddedFolderPath,
+                });
             } catch (error) {
                 const errorMsg = "Could not restart the terraria server";
                 printLog(
@@ -263,6 +273,7 @@ export async function initBot(): Promise<IDiscordBotProcess> {
             })?.[1];
             if (command != null) return await command(message);
 
+            if ((processes.terraria?.playerAmount ?? 0) == 0) return;
             await forwardToTerraria(message);
         })
         .on(Events.Error, (error) => {
@@ -494,7 +505,13 @@ async function stopBot(): Promise<void> {
     printLog({ from: _logSource, logLevel: 1 }, stopMessage);
 }
 
-export async function setBotActivity(input: string | null) {
+export async function setBotActivity(
+    input: string | null,
+    connectedAmount?: number,
+) {
+    if (processes.terraria != null) {
+        processes.terraria.playerAmount = connectedAmount ?? 0;
+    }
     if (!config.bot.enableActivity) return;
 
     let output;
@@ -540,7 +557,11 @@ export async function setBotActivity(input: string | null) {
                 async (id: number, activityGoal: ActivityOptions | null) => {
                     const fetchedActivities = await discordBot?.user
                         ?.fetch()
-                        .then((u) => u?.client.user.presence.activities);
+                        .then((u) => u?.client.user.presence.activities)
+                        .catch((e) => {
+                            printLog({ from: _logSource, isError: true }, e);
+                            return undefined;
+                        });
                     if (
                         fetchedActivities &&
                         check(fetchedActivities, activityGoal)
@@ -567,7 +588,11 @@ export async function parseMentions(input: string) {
 
     const guildId = await discordBot?.channels
         .fetch(config.webhook.channelID)
-        .then((c) => (c as TextChannel)?.guildId);
+        .then((c) => (c as TextChannel)?.guildId)
+        .catch((e) => {
+            printLog({ from: _logSource, isError: true }, e);
+            return undefined;
+        });
 
     if (guildId == null) {
         printLog({ from: _logSource, isError: true }, "guildId is null.");
@@ -576,7 +601,11 @@ export async function parseMentions(input: string) {
 
     const members = await discordBot?.guilds
         .fetch(guildId)
-        .then((g) => g.members);
+        .then((g) => g.members)
+        .catch((e) => {
+            printLog({ from: _logSource, isError: true }, e);
+            return undefined;
+        });
 
     const mentionLookupDict: { [key: string]: string | undefined } = {
         everyone: "@DO_NOT",
@@ -597,7 +626,11 @@ export async function parseMentions(input: string) {
                         .mapValues((m) => m.user.toString())
                         .values()
                         .toArray()[0],
-            );
+            )
+            .catch((e) => {
+                printLog({ from: _logSource, isError: true }, e);
+                return undefined;
+            });
     }
 
     const output = input.replaceAll(
