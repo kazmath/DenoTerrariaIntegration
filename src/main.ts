@@ -49,10 +49,10 @@ async function main() {
 
     processes.discordBot = await initDiscordJs();
 
-    // Deno.addSignalListener("SIGINT", () => {
-    //     console.log("interrupted!");
-    //     Deno.exit();
-    // });
+    if (processes.terraria == null || processes.discordBot == null) {
+        Deno.exit(1);
+    }
+
     Deno.addSignalListener(
         "SIGINT",
         async () =>

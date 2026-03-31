@@ -8,6 +8,7 @@ import {
     Message,
     TextChannel,
     User,
+    Webhook,
     WebhookClient,
     WebhookMessageCreateOptions,
 } from "discord.js";
@@ -284,6 +285,8 @@ export async function initBot(): Promise<IDiscordBotProcess> {
             );
         });
 
+    const errorArr: unknown[] = [];
+
     const botToken = await discordBot //
         .login(config.bot.token)
         .catch((error) => {
@@ -292,8 +295,10 @@ export async function initBot(): Promise<IDiscordBotProcess> {
                 "An error occured when initializing the botClient:",
                 error,
             );
+            errorArr.push(error);
             return null;
         });
+    if (botToken == null) throw new Error("");
 
     webhook = await discordBot.channels
         .fetch(config.webhook.channelID)
@@ -310,10 +315,28 @@ export async function initBot(): Promise<IDiscordBotProcess> {
                 return found;
             }
 
-            return await channel.createWebhook({
-                name: config.webhook.username,
-                avatar: config.webhook.avatarURL,
-            });
+            let thisError;
+            let retries = 0;
+            let output: Webhook | undefined;
+            while (output == null && retries <= 5) {
+                if (retries > 0) {
+                    printLog(
+                        { from: _logSource, isError: true },
+                        `Error in initializing webhook: Retrying ${retries}/5.\n${thisError}`,
+                    );
+                }
+                try {
+                    output = await channel.createWebhook({
+                        name: config.webhook.username,
+                        avatar: config.webhook.avatarURL,
+                    });
+                } catch (error) {
+                    thisError = error;
+                }
+                retries++;
+            }
+            if (output == null || thisError != null) throw thisError;
+            return output;
         })
         .then((webhook) =>
             new WebhookClient(webhook) //
@@ -331,8 +354,10 @@ export async function initBot(): Promise<IDiscordBotProcess> {
                 "An error occured when initializing the webhookClient:",
                 error,
             );
+            errorArr.push(error);
             return null;
         });
+    if (webhook == null) throw new Error("");
 
     return {
         //
